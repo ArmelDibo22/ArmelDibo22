@@ -1,0 +1,118 @@
+<%
+/** Paramètres du compte : coordonnées, consentement, mot de passe, suppression. */
+const errs = (typeof errors !== 'undefined' && errors) ? errors : {};
+const hasPassword = Boolean(customer.password_hash);
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4) var(--space-7)">
+  <h1>Mes informations</h1>
+
+  <div class="account-grid" style="margin-top:var(--space-5)">
+    <aside><%- include('/partials/account-nav', { active: 'settings' }) %></aside>
+
+    <div>
+      <div class="tracking-card">
+        <h2 style="font-size:1.05rem">Coordonnées</h2>
+        <form method="post" action="/compte/parametres" novalidate>
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+          <div class="field">
+            <label for="fullName">Nom et prénoms <span class="required-mark" aria-hidden="true">*</span></label>
+            <input id="fullName" name="fullName" type="text" required maxlength="120" autocomplete="name"
+                   value="<%= customer.full_name || '' %>" aria-invalid="<%= errs.fullName ? 'true' : 'false' %>">
+            <% if (errs.fullName) { %><span class="field-error"><%= errs.fullName %></span><% } %>
+          </div>
+
+          <div class="field">
+            <label for="phone">Téléphone</label>
+            <input id="phone" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel"
+                   value="<%= customer.phone ? formatPhone(customer.phone) : '' %>" aria-invalid="<%= errs.phone ? 'true' : 'false' %>">
+            <% if (errs.phone) { %><span class="field-error"><%= errs.phone %></span><% } %>
+          </div>
+
+          <div class="field">
+            <label for="email-display">E-mail</label>
+            <input id="email-display" type="email" value="<%= customer.email || '' %>" disabled
+                   aria-describedby="email-note">
+            <span id="email-note" class="field-help">
+              <% if (customer.email) { %>
+                L’e-mail sert d’identifiant : sa modification se fait avec la boutique pour éviter tout blocage de connexion.
+              <% } else { %>
+                Aucun e-mail enregistré. Vous vous connectez avec votre téléphone.
+              <% } %>
+            </span>
+          </div>
+
+          <% if (marketingConsentEnabled) { %>
+            <div class="field">
+              <label class="checkbox">
+                <input type="checkbox" name="marketing" value="1" <%= customer.marketing_consent ? 'checked' : '' %>>
+                <span>
+                  J’accepte de recevoir des informations sur les nouveautés et promotions.
+                  <span class="tiny muted" style="display:block">
+                    <% if (customer.marketing_consent && customer.consent_at) { %>
+                      Consentement enregistré le <%= dates.formatDate(customer.consent_at) %>.
+                    <% } else { %>
+                      Aucun consentement enregistré. Le décocher bloque tout envoi commercial.
+                    <% } %>
+                    Ce choix est indépendant de vos commandes.
+                  </span>
+                </span>
+              </label>
+            </div>
+          <% } %>
+
+          <button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer</button>
+        </form>
+      </div>
+
+      <div class="tracking-card" style="margin-top:var(--space-4)">
+        <h2 style="font-size:1.05rem">Mot de passe</h2>
+        <% if (!hasPassword) { %>
+          <div class="alert alert--info"><%- icon('info', 'md') %><span>Ce compte n’a pas de mot de passe : il a été créé automatiquement lors d’une commande. Définissez-en un pour pouvoir vous connecter.</span></div>
+        <% } %>
+        <form method="post" action="/compte/mot-de-passe" novalidate>
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <% if (hasPassword) { %>
+            <div class="field">
+              <label for="current_password">Mot de passe actuel</label>
+              <input id="current_password" name="current_password" type="password" required autocomplete="current-password">
+            </div>
+          <% } %>
+          <div class="field">
+            <label for="new_password">Nouveau mot de passe</label>
+            <input id="new_password" name="new_password" type="password" required minlength="10" autocomplete="new-password"
+                   aria-describedby="pwd-help">
+            <span id="pwd-help" class="field-help">10 caractères minimum. Conservé sous forme d’empreinte chiffrée.</span>
+          </div>
+          <button class="btn btn--ghost" type="submit"><%- icon('lock', 'sm') %> Modifier le mot de passe</button>
+        </form>
+      </div>
+
+      <div class="tracking-card" style="margin-top:var(--space-4)">
+        <h2 style="font-size:1.05rem">Données personnelles</h2>
+        <p class="subtle" style="font-size:.92rem">
+          Nous ne conservons que ce qui est nécessaire au traitement des commandes : nom, téléphone,
+          e-mail si vous l’avez fourni, adresses de livraison et historique d’achats.
+          Aucune donnée de carte bancaire n’est enregistrée.
+        </p>
+        <ul style="font-size:.9rem;color:var(--ink-2);padding-left:18px">
+          <li>Vos commandes restent consultables dans ce compte.</li>
+          <li>Le consentement publicitaire est distinct et modifiable ci-dessus.</li>
+          <li>La suppression du compte anonymise vos coordonnées ; les commandes sont conservées pour les obligations comptables.</li>
+        </ul>
+        <p><a class="btn btn--ghost btn--sm" href="/informations/confidentialite">Lire la politique de confidentialité</a></p>
+
+        <details style="margin-top:var(--space-4)">
+          <summary style="cursor:pointer;font-weight:600;color:var(--danger)">Supprimer mon compte</summary>
+          <form method="post" action="/compte/supprimer"
+                data-confirm="Supprimer définitivement votre compte ? Vos coordonnées seront effacées et vous serez déconnecté."
+                style="margin-top:var(--space-3)">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <p class="tiny muted">Cette action est irréversible. Les factures et commandes restent conservées de manière anonymisée.</p>
+            <button class="btn btn--danger" type="submit"><%- icon('trash', 'sm') %> Supprimer mon compte</button>
+          </form>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>

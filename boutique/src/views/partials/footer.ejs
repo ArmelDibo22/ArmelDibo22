@@ -1,0 +1,71 @@
+<%
+/** Pied de page : coordonnées confirmées uniquement, liens légaux, aucun texte inventé. */
+const navItems = navTree();
+const infoPages = footerPages();
+%>
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <h3><%= store.name %></h3>
+        <p style="font-size:.92rem;color:#c3d0e4;max-width:44ch">
+          <% if (store.tagline) { %><%= store.tagline %><% } else { %>
+            Papeterie et fournitures scolaires, informatique et accessoires, téléphones et accessoires.
+          <% } %>
+        </p>
+        <ul class="footer-list">
+          <% if (store.addressConfirmed && store.address) { %>
+            <li><%- icon('map-pin', 'sm') %> <%= store.address %>, <%= store.city %></li>
+          <% } else { %>
+            <li><%- icon('map-pin', 'sm') %> <%= store.city %><% if (store.region) { %>, <%= store.region %><% } %>, <%= store.country %></li>
+          <% } %>
+          <% store.contacts.filter(c => c.visible !== false).forEach(function (c) { %>
+            <li>
+              <%- icon(c.type === 'phone' ? 'phone' : (c.type === 'email' ? 'mail' : 'info'), 'sm') %>
+              <% if (c.type === 'phone') { %>
+                <a href="tel:<%= String(c.value).replace(/\D/g, '') %>"><%= c.display || c.value %></a>
+              <% } else if (c.type === 'email') { %>
+                <a href="mailto:<%= c.value %>"><%= c.value %></a>
+              <% } else { %><%= c.label %><% if (c.value) { %> : <%= c.value %><% } %><% } %>
+            </li>
+          <% }); %>
+          <% if (store.hoursStatus === 'confirmed' && store.hours.length) { %>
+            <li><%- icon('clock', 'sm') %>
+              <% store.hours.forEach(function (h, i) { %><%= i ? ' · ' : '' %><%= h.day %><% if (!h.closed) { %> <%= h.open %>–<%= h.close %><% } else { %> fermé<% } %><% }); %>
+            </li>
+          <% } %>
+        </ul>
+        <% if (store.mapsUrl) { %>
+          <p><a href="<%= store.mapsUrl %>" target="_blank" rel="noopener noreferrer"><%- icon('external-link', 'sm') %> Voir l’itinéraire</a></p>
+        <% } %>
+      </div>
+
+      <div>
+        <h3>Catégories</h3>
+        <ul class="footer-list">
+          <li><a href="/catalogue">Tout le catalogue</a></li>
+          <% navItems.forEach(function (root) { %>
+            <li><a href="/categorie/<%= root.slug %>"><%= root.name %></a></li>
+          <% }); %>
+        </ul>
+      </div>
+
+      <div>
+        <h3>Informations</h3>
+        <ul class="footer-list">
+          <li><a href="/suivi">Suivre une commande</a></li>
+          <li><a href="/contact">Contact et localisation</a></li>
+          <li><a href="/compte">Mon compte</a></li>
+          <% infoPages.forEach(function (p) { %>
+            <li><a href="/informations/<%= p.slug %>"><%= p.title %></a></li>
+          <% }); %>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <span>© <%= year %> <%= store.name %>. Tous droits réservés.</span>
+      <span class="footer-accent">Prix en <%= store.currencyLabel %>, toutes taxes comprises le cas échéant.</span>
+    </div>
+  </div>
+</footer>

@@ -1,0 +1,162 @@
+<%
+/**
+ * Récapitulatif de commande optimisé pour l'impression (A4).
+ * Document autonome : aucun gabarit, aucune navigation, pas de script externe.
+ */
+const o = order;
+const cfg = settingsMap || {};
+const primaryContact = (cfg['store.contacts'] || []).find((c) => c.is_primary) || (cfg['store.contacts'] || [])[0] || null;
+const paid = ['paid', 'partially_refunded', 'refunded'].includes(o.payment_status);
+%>
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Récapitulatif <%= o.reference %> — <%= cfg['store.name'] %></title>
+<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/admin.css">
+<style><%- theme.cssText %></style>
+<script src="/assets/js/app.js" defer></script>
+<script src="/assets/js/admin.js" defer></script>
+</head>
+<body class="admin" data-print-auto>
+<div class="print-sheet">
+  <div class="print-head">
+    <div>
+      <h1 style="margin:0;font-size:1.25rem"><%= cfg['store.name'] %></h1>
+      <p class="tiny muted" style="margin:2px 0 0">
+        <% if (cfg['store.address_confirmed'] && cfg['store.address']) { %><%= cfg['store.address']>, <% } %><%= cfg['store.city'] %><% if (cfg['store.region']) { %>, région <%= cfg['store.region'] %><% } %> — <%= cfg['store.country'] %>
+        <% if (primaryContact) { %> · Tél. <%= primaryContact.display || primaryContact.value %><% } %>
+        <% if (cfg['store.registration']) { %> · <%= cfg['store.registration'] %><% } %>
+      </p>
+    </div>
+    <div style="text-align:right">
+      <h2 style="margin:0;font-size:1.1rem">Récapitulatif de commande</h2>
+      <p class="mono" style="margin:2px 0 0;font-size:1rem;font-weight:700"><%= o.reference %></p>
+      <p class="tiny muted" style="margin:2px 0 0">Édité le <%= dates.formatDateTime(printedAt) %></p>
+    </div>
+  </div>
+
+  <div class="print-grid">
+    <div class="print-box">
+      <h3>Client</h3>
+      <p style="margin:0">
+        <strong><%= o.recipient_name %></strong><br>
+        <%= formatPhone(o.recipient_phone) %><br>
+        <% if (o.recipient_email) { %><%= o.recipient_email %><br><% } %>
+        <% if (o.marketing_consent) { %><span class="tiny">Consentement publicitaire : oui</span><% } else { %><span class="tiny">Consentement publicitaire : non</span><% } %>
+      </p>
+    </div>
+    <div class="print-box">
+      <h3><%= o.fulfillment_mode === 'pickup' ? 'Retrait' : 'Livraison' %></h3>
+      <p style="margin:0">
+        <% if (o.fulfillment_mode === 'pickup') { %>
+          Retrait en boutique<br><%= cfg['store.city'] %><br>
+          <% if (o.pickup_at) { %>Disponible le <%= dates.formatDateTime(o.pickup_at) %><% } %>
+        <% } else { %>
+          <% if (o.zone) { %><%= o.zone.name %><% if (o.zone.eta_text) { %> · <%= o.zone.eta_text %><% } %><br><% } %>
+          <%= [o.quarter, o.address].filter(Boolean).join(', ') %><br>
+          <%= o.city %><br>
+          <% if (o.landmark) { %>Repère : <%= o.landmark %><br><% } %>
+          <% if (o.carrier) { %>Transporteur : <%= o.carrier.name %><% if (o.tracking_reference) { %> · <%= o.tracking_reference %><% } %><% } %>
+        <% } %>
+      </p>
+    </div>
+    <div class="print-box">
+      <h3>Statuts</h3>
+      <p style="margin:0">
+        Commande : <strong><%= labels.order[o.status] || o.status %></strong><br>
+        Paiement : <strong><%= labels.payment[o.payment_status] || o.payment_status %></strong><br>
+        Réception : <strong><%= labels.delivery[o.delivery_status] || o.delivery_status %></strong><br>
+        Moyen : <strong><%= o.paymentMethod ? o.paymentMethod.name : o.payment_method_code %></strong>
+      </p>
+    </div>
+    <div class="print-box">
+      <h3>Dates</h3>
+      <p style="margin:0">
+        Commande : <%= dates.formatDateTime(o.placed_at) %><br>
+        <% if (o.paid_at) { %>Paiement : <%= dates.formatDateTime(o.paid_at) %><br><% } %>
+        <% if (o.completed_at) { %>Terminée : <%= dates.formatDateTime(o.completed_at) %><br><% } %>
+        <% if (o.cancelled_at) { %>Annulée : <%= dates.formatDateTime(o.cancelled_at) %><br><% } %>
+      </p>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="border:1px solid #ccc">
+    <table class="data">
+      <caption class="visually-hidden">Articles de la commande <%= o.reference %></caption>
+      <thead>
+        <tr><th scope="col">Réf.</th><th scope="col">Article</th><th scope="col" class="num">Qté</th><th scope="col" class="num">P.U.</th><th scope="col" class="num">Total</th></tr>
+      </thead>
+      <tbody>
+        <% o.items.forEach(function (it) { %>
+          <tr>
+            <td class="mono tiny"><%= it.sku || '—' %></td>
+            <td><%= it.name %><% if (it.options_label) { %> <span class="tiny">(<%= it.options_label %>)</span><% } %></td>
+            <td class="num"><%= it.qty %> <%= it.unit %></td>
+            <td class="num"><%= money.format(it.unit_price) %></td>
+            <td class="num"><%= money.format(it.line_total) %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+      <tfoot>
+        <tr><td colspan="4" class="right">Sous-total</td><td class="num"><%= money.format(o.subtotal) %></td></tr>
+        <% if (o.discount > 0) { %><tr><td colspan="4" class="right">Remise</td><td class="num">− <%= money.format(o.discount) %></td></tr><% } %>
+        <tr>
+          <td colspan="4" class="right"><%= o.fulfillment_mode === 'pickup' ? 'Retrait en boutique' : 'Livraison' %></td>
+          <td class="num">
+            <% if (o.quote_required && o.quote_status !== 'accepted') { %>Sur devis<% } else { %><%= money.format(o.shipping_cost) %><% } %>
+          </td>
+        </tr>
+        <tr><td colspan="4" class="right"><strong>TOTAL</strong></td><td class="num"><strong style="font-size:1.1rem"><%= money.format(o.total) %></strong></td></tr>
+        <tr><td colspan="4" class="right">Réglé</td><td class="num"><%= money.format(o.amount_paid) %></td></tr>
+        <% if (o.amount_refunded > 0) { %><tr><td colspan="4" class="right">Remboursé</td><td class="num">− <%= money.format(o.amount_refunded) %></td></tr><% } %>
+        <% if (o.total - o.amount_paid > 0) { %><tr><td colspan="4" class="right"><strong>Reste dû</strong></td><td class="num"><strong><%= money.format(o.total - o.amount_paid) %></strong></td></tr><% } %>
+      </tfoot>
+    </table>
+  </div>
+
+  <% if (o.customer_note) { %>
+    <div class="print-box" style="margin-top:var(--space-4)"><h3>Note du client</h3><p style="margin:0"><%= o.customer_note %></p></div>
+  <% } %>
+  <% if (o.cancel_reason) { %>
+    <div class="print-box" style="margin-top:var(--space-4)"><h3>Annulation</h3><p style="margin:0"><%= o.cancel_reason %></p></div>
+  <% } %>
+
+  <% if (o.deliveryEvents.length) { %>
+    <div class="print-box" style="margin-top:var(--space-4)">
+      <h3>Suivi</h3>
+      <ul style="margin:0;padding-left:18px;font-size:.9rem">
+        <% o.deliveryEvents.forEach(function (ev) { %>
+          <li><%= dates.formatDateTime(ev.happened_at) %> — <%= ev.label %><% if (ev.detail) { %> : <%= ev.detail %><% } %></li>
+        <% }); %>
+      </ul>
+    </div>
+  <% } %>
+
+  <div style="margin-top:var(--space-6);display:flex;justify-content:space-between;gap:var(--space-6)">
+    <div style="flex:1 1 auto">
+      <p class="tiny muted">Signature du client</p>
+      <div style="border:1px solid #ccc;height:70px;border-radius:6px"></div>
+    </div>
+    <div style="flex:1 1 auto">
+      <p class="tiny muted">Cachet et signature de la boutique</p>
+      <div style="border:1px solid #ccc;height:70px;border-radius:6px"></div>
+    </div>
+  </div>
+
+  <p class="tiny muted" style="margin-top:var(--space-5);text-align:center">
+    Document généré par le site de <%= cfg['store.name'] %> le <%= dates.formatDateTime(printedAt) %>.
+    <% if (!paid) { %>Ce récapitulatif ne vaut pas preuve de paiement.<% } %>
+    Suivi en ligne : <%= config.publicUrl %>/suivi
+  </p>
+
+  <div class="btn-row no-print" style="justify-content:center;margin-top:var(--space-4)">
+    <button class="btn" type="button" data-print><%- icon('print', 'sm') %> Imprimer</button>
+    <a class="btn btn--ghost" href="/admin/commandes/<%= o.id %>">Retour à la commande</a>
+  </div>
+</div>
+</body>
+</html>

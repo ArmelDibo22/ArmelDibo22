@@ -1,0 +1,25 @@
+<%
+/** Ferme la zone de contenu et le document d'administration. */
+%>
+  </main>
+</div>
+
+<footer class="tiny muted" style="padding:var(--space-4) var(--space-5);border-top:1px solid var(--border);background:#fff">
+  <div style="display:flex;flex-wrap:wrap;gap:var(--space-3);justify-content:space-between;align-items:center">
+    <span>
+      <%= store.name %> — espace d’administration.
+      <% if (config.isDemo) { %><strong style="color:var(--warn)">Données de démonstration.</strong><% } %>
+    </span>
+    <span>
+      <a href="/admin/etat">État technique</a> ·
+      <a href="/admin/sauvegardes">Sauvegardes</a> ·
+      <a href="/admin/journal">Journal</a> ·
+      <a href="/" target="_blank" rel="noopener">Boutique</a>
+    </span>
+  </div>
+</footer>
+
+<script src="/assets/js/app.js" defer></script>
+<script src="/assets/js/admin.js" defer></script>
+</body>
+</html>

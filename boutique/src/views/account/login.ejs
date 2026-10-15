@@ -1,0 +1,50 @@
+<%
+/** Connexion client (facultative : la commande sans compte reste possible). */
+const errs = (typeof errors !== 'undefined' && errors) ? errors : {};
+const v = (typeof values !== 'undefined' && values) ? values : {};
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4)">
+  <div class="auth-card">
+    <h1>Connexion</h1>
+    <p class="muted" style="font-size:.92rem">
+      Retrouvez vos commandes et vos coordonnées. Le compte est facultatif :
+      vous pouvez <a href="/catalogue">commander sans en créer un</a>.
+    </p>
+
+    <form method="post" action="/compte/connexion" novalidate style="margin-top:var(--space-4)">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="suite" value="<%= suite %>">
+
+      <div class="field">
+        <label for="identifier">E-mail ou téléphone</label>
+        <input id="identifier" name="identifier" type="text" required autocomplete="username"
+               value="<%= v.identifier || '' %>" aria-invalid="<%= errs.identifier ? 'true' : 'false' %>"
+               aria-describedby="identifier-help">
+        <span id="identifier-help" class="field-help">L’un ou l’autre suffit.</span>
+        <% if (errs.identifier) { %><span class="field-error" role="alert"><%= errs.identifier %></span><% } %>
+      </div>
+
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <input id="password" name="password" type="password" required autocomplete="current-password"
+               minlength="10" aria-describedby="password-help">
+        <span id="password-help" class="field-help">10 caractères minimum.</span>
+      </div>
+
+      <button class="btn btn--block" type="submit"><%- icon('login', 'sm') %> Se connecter</button>
+    </form>
+
+    <p class="tiny muted" style="margin-top:var(--space-4)">
+      Pas encore de compte ? <a href="/compte/inscription">Créer un compte</a> (facultatif).
+    </p>
+    <p class="tiny muted">
+      Mot de passe oublié ? Contactez la boutique<% if (store.phoneDisplay) { %> au <a href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a><% } else { %> via le <a href="/contact">formulaire de contact</a><% } %> :
+      la réinitialisation est faite manuellement pour l’instant, aucun e-mail automatique n’est envoyé.
+    </p>
+    <hr style="border:0;border-top:1px solid var(--border);margin:var(--space-4) 0">
+    <p class="tiny muted" style="margin:0">
+      Vous cherchez le suivi d’une commande passée sans compte ?
+      <a href="/suivi">Utilisez la référence et les 4 derniers chiffres de votre téléphone</a>.
+    </p>
+  </div>
+</div>

@@ -1,0 +1,240 @@
+<%
+/**
+ * Catégories et sous-catégories : création, renommage, réorganisation,
+ * archivage, et modèles de caractéristiques propres à chaque famille.
+ */
+const rows = [];
+(function walk(nodes, depth, parent) {
+  nodes.forEach(function (n, i) {
+    rows.push({ ...n, depth, parentName: parent ? parent.name : '', siblings: nodes.length, index: i });
+    if (n.children && n.children.length) walk(n.children, depth + 1, n);
+  });
+})(tree, 0, null);
+const sel = selected || null;
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Catégories</h1>
+    <p class="sub"><%= rows.length %> catégorie(s) · l’ordre affiché ici est celui du site</p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/produits"><%- icon('box', 'sm') %> Produits</a>
+  </div>
+</div>
+
+<div class="split split--2">
+  <div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Ajouter une catégorie</h2>
+        <span class="hint">Sans limite de nombre ni de profondeur</span>
+      </div>
+      <div class="panel-body">
+        <form method="post" action="/admin/categories" class="form-grid form-grid--3">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field span-2">
+            <label for="new-name">Nom <span class="required-mark" aria-hidden="true">*</span></label>
+            <input id="new-name" name="name" type="text" required maxlength="160" placeholder="Ex. : Cahiers et blocs">
+          </div>
+          <div class="field">
+            <label for="new-parent">Rattachée à</label>
+            <select id="new-parent" name="parent_id">
+              <option value="">— catégorie principale —</option>
+              <% rows.forEach(function (c) { %>
+                <option value="<%= c.id %>"><%= '— '.repeat(c.depth) %><%= c.name %></option>
+              <% }); %>
+            </select>
+          </div>
+          <div class="field span-2">
+            <label for="new-desc">Description (facultatif)</label>
+            <input id="new-desc" name="description" type="text" maxlength="400" placeholder="Une phrase affichée en tête de catégorie">
+          </div>
+          <div class="field">
+            <label for="new-slug">Adresse web (facultatif)</label>
+            <input id="new-slug" name="slug" type="text" maxlength="160" placeholder="cahiers-et-blocs">
+          </div>
+          <div class="span-2">
+            <button class="btn" type="submit"><%- icon('plus', 'sm') %> Créer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Arborescence</h2><span class="hint">Cliquer sur une catégorie pour la modifier</span></div>
+      <div class="panel-body panel-body--flush">
+        <% if (!rows.length) { %>
+          <p class="empty-row">Aucune catégorie. Créez d’abord les trois grandes familles (papeterie, informatique, téléphonie).</p>
+        <% } else { %>
+          <ul style="list-style:none;margin:0;padding:0">
+            <% rows.forEach(function (c) { %>
+              <li style="border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px var(--space-4);padding-left:<%= 16 + c.depth * 22 %>px">
+                  <span style="flex:1 1 auto;min-width:0">
+                    <a href="/admin/categories?id=<%= c.id %>" style="font-weight:<%= c.depth === 0 ? '700' : '500' %>"><%= c.name %></a>
+                    <% if (c.archived) { %><span class="pill pill--neutral" style="margin-left:6px">archivée</span><% } %>
+                    <span class="tiny muted" style="display:block">
+                      <span class="mono"><%= c.slug %></span> · <%= c.product_count %> article(s) publié(s)
+                      <% if (c.parentName) { %> · dans <%= c.parentName %><% } %>
+                    </span>
+                  </div>
+                  <span class="badge-count"><%= c.product_count %></span>
+                  <a class="btn btn--sm btn--quiet" href="/admin/produits?categorie=<%= c.id %>"><%- icon('box', 'xs') %><span class="visually-hidden">Voir les articles</span></a>
+                  <a class="btn btn--sm btn--quiet" href="/categorie/<%= c.slug %>" target="_blank" rel="noopener"><%- icon('eye', 'xs') %><span class="visually-hidden">Voir sur le site</span></a>
+                </div>
+              </li>
+            <% }); %>
+          </ul>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <% if (!sel) { %>
+      <div class="panel">
+        <div class="panel-body">
+          <p class="muted" style="margin:0">Sélectionnez une catégorie dans l’arborescence pour la renommer, la déplacer,
+          l’archiver ou définir ses caractéristiques types.</p>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="panel">
+        <div class="panel-head"><h2><%= sel.name %></h2><span class="hint">n° <%= sel.id %></span></div>
+        <div class="panel-body">
+          <form method="post" action="/admin/categories/<%= sel.id %>">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="field">
+              <label for="edit-name">Nom</label>
+              <input id="edit-name" name="name" type="text" required maxlength="160" value="<%= sel.name %>">
+            </div>
+            <div class="field">
+              <label for="edit-slug">Adresse web</label>
+              <input id="edit-slug" name="slug" type="text" maxlength="160" value="<%= sel.slug %>">
+              <span class="field-help">La modifier change l’URL publique de la catégorie.</span>
+            </div>
+            <div class="field">
+              <label for="edit-parent">Rattachée à</label>
+              <select id="edit-parent" name="parent_id">
+                <option value="">— catégorie principale —</option>
+                <% rows.filter(function (c) { return c.id !== sel.id; }).forEach(function (c) { %>
+                  <option value="<%= c.id %>" <%= sel.parent_id === c.id ? 'selected' : '' %>><%= '— '.repeat(c.depth) %><%= c.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="field">
+              <label for="edit-desc">Description</label>
+              <textarea id="edit-desc" name="description" rows="3" maxlength="400"><%= sel.description || '' %></textarea>
+            </div>
+            <div class="field">
+              <label for="edit-pos">Position (ordre d’affichage)</label>
+              <input id="edit-pos" name="position" type="number" min="0" step="1" inputmode="numeric" value="<%= sel.position %>">
+            </div>
+            <label class="checkbox">
+              <input type="checkbox" name="archived" value="1" <%= sel.archived ? 'checked' : '' %>>
+              <span><strong>Archiver cette catégorie</strong>
+                <span class="tiny muted" style="display:block">Elle disparaît du site sans supprimer les articles.</span>
+              </span>
+            </label>
+            <div class="btn-row">
+              <button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer</button>
+              <a class="btn btn--quiet" href="/categorie/<%= sel.slug %>" target="_blank" rel="noopener"><%- icon('eye', 'sm') %> Voir sur le site</a>
+            </div>
+          </form>
+
+          <% if (can('catalog.delete')) { %>
+            <form method="post" action="/admin/categories/<%= sel.id %>/supprimer" style="margin-top:var(--space-4)"
+                  data-confirm="Supprimer la catégorie « <%= sel.name %> » ? Ses sous-catégories seront rattachées au niveau supérieur.">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button class="btn btn--danger btn--sm" type="submit"><%- icon('trash', 'sm') %> Supprimer la catégorie</button>
+            </form>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Caractéristiques types</h2>
+          <span class="hint">Proposées lors de la création d’un article</span>
+        </div>
+        <div class="panel-body">
+          <% if (!templates.length) { %>
+            <p class="tiny muted" style="margin-top:0">
+              Aucune caractéristique définie pour cette catégorie. Ajoutez par exemple « Format », « Nombre de pages »
+              pour la papeterie, ou « Capacité », « Connectique » pour l’informatique.
+            </p>
+          <% } else { %>
+            <div class="table-wrap" style="margin-bottom:var(--space-3)">
+              <table class="data compact">
+                <caption class="visually-hidden">Modèles de caractéristiques</caption>
+                <thead><tr><th scope="col">Intitulé</th><th scope="col">Clé</th><th scope="col">Type</th><th scope="col">Unité</th><th scope="col"></th></tr></thead>
+                <tbody>
+                  <% templates.forEach(function (t) { %>
+                    <tr>
+                      <td><%= t.label %><% if (t.required) { %> <span class="pill pill--warn">requis</span><% } %></td>
+                      <td class="mono tiny"><%= t.key %></td>
+                      <td class="tiny"><%= t.type %></td>
+                      <td class="tiny"><%= t.unit || '—' %></td>
+                      <td class="right">
+                        <form method="post" action="/admin/categories/attributs/<%= t.id %>/supprimer" style="display:inline">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                          <button class="btn btn--sm btn--quiet" type="submit" title="Supprimer"><%- icon('trash', 'xs') %><span class="visually-hidden">Supprimer</span></button>
+                        </form>
+                      </td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            </div>
+          <% } %>
+
+          <form method="post" action="/admin/categories/<%= sel.id %>/attributs" class="form-grid form-grid--3">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="field">
+              <label for="tpl-label">Intitulé <span class="required-mark" aria-hidden="true">*</span></label>
+              <input id="tpl-label" name="label" type="text" required maxlength="80" placeholder="Capacité">
+            </div>
+            <div class="field">
+              <label for="tpl-key">Clé technique</label>
+              <input id="tpl-key" name="key" type="text" maxlength="80" placeholder="capacite">
+              <span class="field-help">Générée depuis l’intitulé si vide.</span>
+            </div>
+            <div class="field">
+              <label for="tpl-type">Type</label>
+              <select id="tpl-type" name="type">
+                <option value="text">Texte</option>
+                <option value="number">Nombre</option>
+                <option value="select">Liste de choix</option>
+                <option value="boolean">Oui / non</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="tpl-unit">Unité</label>
+              <input id="tpl-unit" name="unit" type="text" maxlength="20" placeholder="Go, cm, pages…">
+            </div>
+            <div class="field">
+              <label for="tpl-options">Choix possibles</label>
+              <input id="tpl-options" name="options" type="text" placeholder="64 Go, 128 Go, 256 Go">
+              <span class="field-help">Séparés par des virgules (type « Liste de choix »).</span>
+            </div>
+            <div class="field">
+              <label for="tpl-pos">Position</label>
+              <input id="tpl-pos" name="position" type="number" min="0" step="1" inputmode="numeric" value="0">
+            </div>
+            <div class="span-2">
+              <label class="checkbox" style="margin-bottom:var(--space-3)">
+                <input type="checkbox" name="required" value="1">
+                <span>Caractéristique obligatoire pour cette catégorie</span>
+              </label>
+              <button class="btn btn--ghost" type="submit"><%- icon('plus', 'sm') %> Ajouter la caractéristique</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

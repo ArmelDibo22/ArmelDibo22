@@ -1,0 +1,204 @@
+<%
+/**
+ * Panier.
+ * Les montants affichés sont recalculés côté serveur à chaque affichage :
+ * le navigateur ne fournit qu'un jeton opaque.
+ */
+const lines = (cart && cart.items) || [];
+const problems = (cart && cart.problems) || [];
+const blocking = problems.filter((p) => p.adjustTo === undefined);
+const adjustable = problems.filter((p) => p.adjustTo !== undefined);
+const belowMinimum = minOrder > 0 && cart && cart.subtotal < minOrder;
+const pickupFree = pickupZone && Number(pickupZone.requires_quote) === 0;
+%>
+<div class="container" style="padding-top:var(--space-4);padding-bottom:var(--space-6)">
+  <%- include('/partials/breadcrumb', { crumbs: [{ label: 'Panier' }] }) %>
+  <h1>Votre panier</h1>
+
+  <% if (!lines.length) { %>
+    <div class="state">
+      <%- icon('cart', 'xl') %>
+      <h2>Votre panier est vide</h2>
+      <p>Parcourez le catalogue pour ajouter des articles. Vous pouvez aussi commander sans créer de compte.</p>
+      <div class="btn-row" style="justify-content:center">
+        <a class="btn" href="/catalogue"><%- icon('grid', 'sm') %> Voir le catalogue</a>
+        <a class="btn btn--ghost" href="/suivi"><%- icon('truck', 'sm') %> Suivre une commande</a>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="cart-layout">
+      <div>
+        <% if (blocking.length) { %>
+          <div class="alert alert--error">
+            <%- icon('alert', 'md') %>
+            <div>
+              <strong>Commande bloquée</strong>
+              <ul style="margin:6px 0 0;padding-left:18px">
+                <% blocking.forEach(function (b) { %><li><%= b.name ? `${b.name} : ` : '' %><%= b.message %></li><% }); %>
+              </ul>
+              <p class="tiny" style="margin:8px 0 0">Retirez ou corrigez ces articles pour continuer.</p>
+            </div>
+          </div>
+        <% } %>
+        <% if (adjustable.length) { %>
+          <div class="alert alert--warn">
+            <%- icon('info', 'md') %>
+            <div>
+              <strong>Quantités ajustées</strong>
+              <ul style="margin:6px 0 0;padding-left:18px">
+                <% adjustable.forEach(function (b) { %><li><%= b.name ? `${b.name} : ` : '' %><%= b.message %></li><% }); %>
+              </ul>
+            </div>
+          </div>
+        <% } %>
+
+        <ul class="cart-list">
+          <% lines.forEach(function (item) { %>
+            <li class="cart-line" data-cart-line>
+              <div class="cart-line-media">
+                <% if (item.image && item.image.fileKey) { %>
+                  <a href="/produit/<%= item.slug %>">
+                    <img src="<%= mediaUrl(item.image.fileKey, 'thumb') %>" alt="<%= item.image.alt || item.name %>" width="100" height="100" loading="lazy">
+                  </a>
+                <% } else { %>
+                  <span aria-hidden="true" style="color:var(--ink-3)"><%- icon('image', 'lg') %></span>
+                <% } %>
+              </div>
+
+              <div>
+                <h2 class="cart-line-title"><a href="/produit/<%= item.slug %>"><%= item.name %></a></h2>
+                <p class="cart-line-meta">
+                  <% if (item.sku) { %>Réf. <span class="mono"><%= item.sku %></span><% } %>
+                  <% if (item.optionsLabel) { %> · <%= item.optionsLabel %><% } %>
+                  · <%= item.unitLabel %>
+                  <% if (item.isKit) { %> · <span class="pill pill--brand">Kit</span><% } %>
+                </p>
+
+                <% if (!item.purchasable || item.availabilityStatus === 'out') { %>
+                  <p class="field-error" style="margin:0 0 6px">
+                    <%- icon('alert', 'xs') %> <%= item.problems[0] || item.availabilityLabel %>
+                  </p>
+                <% } else if (item.available != null && item.qty > item.available) { %>
+                  <p class="field-error" style="margin:0 0 6px">
+                    <%- icon('alert', 'xs') %> <%= item.available %> disponible(s) seulement — quantité à réduire.
+                  </p>
+                <% } else { %>
+                  <p class="availability availability--<%= item.availabilityStatus %>" style="margin:0 0 6px;font-size:.82rem"><%= item.availabilityLabel %></p>
+                <% } %>
+
+                <div class="cart-line-actions">
+                  <form method="post" action="/panier/ligne/<%= item.id %>" style="display:flex;gap:8px;align-items:center">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <label class="visually-hidden" for="qty-<%= item.id %>">Quantité pour <%= item.name %></label>
+                    <span class="qty-input">
+                      <button type="button" data-qty-step="-1" aria-label="Diminuer">−</button>
+                      <input id="qty-<%= item.id %>" type="number" name="qty" value="<%= item.qty %>" min="1"
+                             max="<%= item.available == null ? 999 : Math.max(1, item.available) %>" step="1" inputmode="numeric"
+                             data-cart-qty="<%= item.id %>">
+                      <button type="button" data-qty-step="1" aria-label="Augmenter">+</button>
+                    </span>
+                    <noscript><button class="btn btn--sm btn--quiet" type="submit">Mettre à jour</button></noscript>
+                  </form>
+
+                  <button class="link-btn" type="button" data-cart-remove="<%= item.id %>">Retirer</button>
+                  <span class="tiny muted"><%= money.format(item.unitPrice) %> / <%= item.unitLabel %></span>
+                  <% if (item.compareAt && item.compareAt > item.unitPrice) { %>
+                    <span class="price-compare"><%= money.format(item.compareAt) %></span>
+                  <% } %>
+                </div>
+              </div>
+
+              <div class="cart-line-total">
+                <%= money.format(item.lineTotal) %>
+              </div>
+            </li>
+          <% }); %>
+        </ul>
+
+        <div class="btn-row" style="margin-top:var(--space-4)">
+          <a class="btn btn--ghost" href="/catalogue"><%- icon('arrow-left', 'sm') %> Continuer mes achats</a>
+          <form method="post" action="/panier/vider" data-confirm="Vider entièrement le panier ?">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button class="btn btn--quiet" type="submit"><%- icon('trash', 'sm') %> Vider le panier</button>
+          </form>
+        </div>
+      </div>
+
+      <aside>
+        <div class="summary">
+          <h2>Récapitulatif</h2>
+          <div class="summary-row">
+            <span>Articles (<%= cart.itemCount %>)</span>
+            <strong><%= money.format(cart.subtotal) %></strong>
+          </div>
+          <% if (cart.totalWeightG > 0) { %>
+            <div class="summary-row tiny muted">
+              <span>Poids estimé</span><span><%= (cart.totalWeightG / 1000).toFixed(2).replace('.', ',') %> kg</span>
+            </div>
+          <% } %>
+          <div class="summary-row">
+            <span>Livraison</span>
+            <span class="muted" style="text-align:right">Calculée à l’étape suivante</span>
+          </div>
+          <div class="summary-row summary-row--total">
+            <span>Total provisoire</span>
+            <span><%= money.format(cart.subtotal) %></span>
+          </div>
+
+          <% if (belowMinimum) { %>
+            <div class="alert alert--warn" style="margin-top:var(--space-3)">
+              <%- icon('info', 'sm') %>
+              <span>Montant minimum de commande : <strong><%= money.format(minOrder) %></strong>. Il manque <%= money.format(minOrder - cart.subtotal) %>.</span>
+            </div>
+          <% } %>
+
+          <p style="margin:var(--space-4) 0 var(--space-3)">
+            <a class="btn btn--lg btn--block" href="/commande" <%= (blocking.length || belowMinimum) ? 'aria-disabled="true" style="opacity:.55;pointer-events:none"' : '' %>>
+              Passer la commande <%- icon('arrow-right', 'sm') %>
+            </a>
+          </p>
+          <p style="margin:0 0 var(--space-3)">
+            <a class="btn btn--ghost btn--block" href="/commande?mode=pickup">
+              <%- icon('store', 'sm') %> Commander avec retrait en boutique
+            </a>
+          </p>
+
+          <ul class="assurances" style="margin:0 0 var(--space-3)">
+            <% if (pickupFree) { %>
+              <li><%- icon('store', 'sm') %><span>Retrait en boutique à <%= store.city %> : <strong>sans frais</strong></span></li>
+            <% } %>
+            <% if (deliveryZones.length) { %>
+              <li><%- icon('truck', 'sm') %><span>Livraison : <%= deliveryZones.map(z => z.name).join(', ') %></span></li>
+            <% } %>
+            <li><%- icon('shield', 'sm') %><span>Aucune donnée de carte n’est enregistrée sur ce site</span></li>
+          </ul>
+
+          <p class="summary-note">
+            <% if (appSettings['shipping.quote_note']) { %><%= appSettings['shipping.quote_note'] %><% } else { %>
+              Lorsque aucun tarif de livraison n’est défini pour votre destination, la commande passe en
+              « Livraison sur devis » : la boutique vous propose un montant et vous ne payez qu’après l’avoir accepté.
+            <% } %>
+          </p>
+
+          <% if (whatsappCartUrl) { %>
+            <p style="margin-top:var(--space-3)">
+              <a class="btn btn--whatsapp btn--sm btn--block" href="<%= whatsappCartUrl %>" target="_blank" rel="noopener noreferrer">
+                <%- icon('whatsapp', 'sm') %> Envoyer ce panier sur WhatsApp
+              </a>
+            </p>
+            <p class="tiny muted" style="margin-top:6px">
+              <%= store.whatsappDisclaimer || 'Ouvrir WhatsApp ne confirme ni une commande ni un paiement.' %>
+            </p>
+          <% } %>
+
+          <% if (!customer) { %>
+            <p class="tiny muted" style="margin-top:var(--space-3);border-top:1px solid var(--border);padding-top:var(--space-3)">
+              Déjà client ? <a href="/compte/connexion">Connectez-vous</a> pour retrouver vos coordonnées.
+              La commande sans compte reste possible.
+            </p>
+          <% } %>
+        </div>
+      </aside>
+    </div>
+  <% } %>
+</div>

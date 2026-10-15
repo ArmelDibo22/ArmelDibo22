@@ -1,0 +1,75 @@
+<%
+/** Ticket de caisse (80 mm) — document autonome, impression directe. */
+// `store` est la vue établissement injectée par le middleware de contexte ;
+// `appSettings` est la carte brute des réglages (jamais nommée `settings`,
+// qui est réservée aux réglages internes d'Express/EJS).
+const registration = appSettings ? appSettings['store.registration'] : '';
+%>
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Ticket <%= sale.reference %></title>
+<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/admin.css">
+<style><%- theme.cssText %></style>
+<script src="/assets/js/app.js" defer></script>
+<script src="/assets/js/admin.js" defer></script>
+</head>
+<body class="admin" data-print-auto>
+<div class="print-sheet receipt">
+  <h1><%= store.name %></h1>
+  <p style="text-align:center;margin:0 0 6px;font-size:11px">
+    <% if (store.addressConfirmed && store.address) { %><%= store.address %><br><% } %>
+    <%= store.city %><% if (store.region) { %>, <%= store.region %><% } %><br>
+    <% if (store.phoneDisplay) { %>Tél. <%= store.phoneDisplay %><br><% } %>
+    <% if (registration) { %><%= registration %><% } %>
+  </p>
+  <hr>
+  <div class="r-line"><span>Ticket</span><strong><%= sale.reference %></strong></div>
+  <div class="r-line"><span>Date</span><span><%= dates.formatDateTime(sale.created_at) %></span></div>
+  <div class="r-line"><span>Vendeur</span><span><%= sale.user ? (sale.user.full_name || sale.user.email) : '—' %></span></div>
+  <% if (sale.customer_name || sale.customer_phone) { %>
+    <div class="r-line"><span>Client</span><span><%= sale.customer_name %><%= sale.customer_phone ? ' · ' + formatPhone(sale.customer_phone) : '' %></span></div>
+  <% } %>
+  <hr>
+  <% sale.items.forEach(function (it) { %>
+    <div style="margin-bottom:4px">
+      <div><%= it.name %><% if (it.options_label) { %> (<%= it.options_label %>)<% } %></div>
+      <div class="r-line">
+        <span><%= it.qty %> × <%= money.format(it.unit_price) %></span>
+        <strong><%= money.format(it.line_total) %></strong>
+      </div>
+    </div>
+  <% }); %>
+  <hr>
+  <div class="r-line"><span>Sous-total</span><span><%= money.format(sale.subtotal) %></span></div>
+  <% if (sale.discount > 0) { %><div class="r-line"><span>Remise</span><span>− <%= money.format(sale.discount) %></span></div><% } %>
+  <div class="r-line" style="font-size:14px"><strong>TOTAL</strong><strong><%= money.format(sale.total) %></strong></div>
+  <div class="r-line"><span>Moyen</span><span><%= sale.method ? sale.method.name : sale.method_code %></span></div>
+  <div class="r-line"><span>Reçu</span><span><%= money.format(sale.amount_paid) %></span></div>
+  <% if (sale.change_due > 0) { %><div class="r-line"><span>Rendu</span><span><%= money.format(sale.change_due) %></span></div><% } %>
+  <% if (sale.status !== 'done') { %>
+    <hr>
+    <div style="text-align:center;font-weight:700">VENTE <%= sale.status === 'cancelled' ? 'ANNULÉE' : sale.status.toUpperCase() %></div>
+  <% } %>
+  <% if (sale.note) { %>
+    <hr>
+    <div style="font-size:11px"><%= sale.note %></div>
+  <% } %>
+  <hr>
+  <p style="text-align:center;font-size:11px;margin:6px 0 0">
+    Merci de votre visite.<br>
+    Échange et retour selon les conditions affichées en boutique.<br>
+    Suivi en ligne : <%= config.publicUrl %>/suivi
+  </p>
+
+  <div class="btn-row no-print" style="justify-content:center;margin-top:16px">
+    <button class="btn btn--sm" type="button" data-print><%- icon('print', 'sm') %> Imprimer</button>
+    <a class="btn btn--sm btn--ghost" href="/admin/caisse?vente=<%= sale.id %>">Retour à la caisse</a>
+  </div>
+</div>
+</body>
+</html>

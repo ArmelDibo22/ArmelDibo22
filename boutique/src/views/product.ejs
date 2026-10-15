@@ -1,0 +1,255 @@
+<%
+/**
+ * Fiche produit.
+ * Prix, disponibilité et achetabilité proviennent du serveur. Le sélecteur de
+ * variante ne fait qu'afficher des valeurs déjà calculées.
+ */
+const p = product;
+const crumbs = breadcrumbTrail.map((c) => ({ label: c.name, href: `/categorie/${c.slug}` }));
+crumbs.push({ label: p.name });
+const avail = purchasability.availability || p.availability;
+const price = purchasability.price || p.price_info;
+const mainImage = images.length ? images[0] : null;
+const maxQty = avail.available === Infinity || avail.available == null ? 999 : Math.max(1, Math.min(999, avail.available));
+const promoActiveNow = Boolean(price.promo);
+const variantData = {};
+variantView.forEach(function (v) { variantData[String(v.id)] = v; });
+const SALE_UNIT = p.unit_label || 'Pièce';
+%>
+<div class="container" style="padding-top:var(--space-4);padding-bottom:var(--space-6)">
+  <%- include('/partials/breadcrumb', { crumbs }) %>
+
+  <div class="product-layout" data-product-page data-variants='<%- JSON.stringify(variantData) %>'>
+    <!-- ---------------- Galerie ---------------- -->
+    <div>
+      <div class="gallery-main">
+        <% if (mainImage) { %>
+          <img id="photo-principale" data-gallery-main
+               src="<%= mediaUrl(mainImage.file_key, 'large') %>"
+               data-zoom="<%= mediaUrl(mainImage.file_key, 'original') %>"
+               alt="<%= mainImage.alt || p.name %>"
+               width="<%= mainImage.width || 900 %>" height="<%= mainImage.height || 900 %>">
+        <% } else { %>
+          <span class="ph" style="color:var(--ink-3)" aria-hidden="true"><%- icon('image', 'xl') %></span>
+          <p class="tiny muted" style="position:absolute;bottom:10px;left:0;right:0;text-align:center">
+            Photo non disponible — demandez-la à la boutique
+          </p>
+        <% } %>
+        <% if (promoActiveNow && price.compareAt) { %>
+          <span class="tag tag--promo">Promotion en cours</span>
+        <% } %>
+        <% if (avail.status === 'out') { %><span class="tag tag--out">Rupture de stock</span><% } %>
+      </div>
+
+      <% if (images.length > 1) { %>
+        <div class="gallery-thumbs" role="group" aria-label="Autres photos de l’article">
+          <% images.forEach(function (img, i) { %>
+            <button type="button" data-thumb data-full="<%= mediaUrl(img.file_key, 'large') %>" data-alt="<%= img.alt || p.name %>"
+                    aria-current="<%= i === 0 ? 'true' : 'false' %>" aria-label="Photo <%= i + 1 %> : <%= img.alt || p.name %>">
+              <img src="<%= mediaUrl(img.file_key, 'thumb') %>" alt="" loading="lazy" width="68" height="68">
+            </button>
+          <% }); %>
+        </div>
+      <% } %>
+
+      <% if (p.description || attributes.length || p.box_contents || p.warranty) { %>
+      <div class="panel" style="margin-top:var(--space-5);background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg)">
+        <div class="product-tabs" role="tablist" aria-label="Informations sur l’article">
+          <% if (p.description) { %><button type="button" role="tab" id="tab-desc" aria-controls="panel-desc" aria-selected="true">Description</button><% } %>
+          <% if (attributes.length) { %><button type="button" role="tab" id="tab-specs" aria-controls="panel-specs" aria-selected="false" tabindex="-1">Caractéristiques</button><% } %>
+          <% if (p.box_contents || p.warranty) { %><button type="button" role="tab" id="tab-box" aria-controls="panel-box" aria-selected="false" tabindex="-1">Boîte et garantie</button><% } %>
+          <% if (p.is_kit && kitComponents.length) { %><button type="button" role="tab" id="tab-kit" aria-controls="panel-kit" aria-selected="false" tabindex="-1">Contenu du kit</button><% } %>
+          <button type="button" role="tab" id="tab-ship" aria-controls="panel-ship" aria-selected="false" tabindex="-1">Retrait et livraison</button>
+        </div>
+        <div style="padding:var(--space-4)">
+          <% if (p.description) { %>
+            <div role="tabpanel" id="panel-desc" aria-labelledby="tab-desc" class="rich"><%- p.description %></div>
+          <% } %>
+          <% if (attributes.length) { %>
+            <div role="tabpanel" id="panel-specs" aria-labelledby="tab-specs" hidden>
+              <table class="spec-table">
+                <caption class="visually-hidden">Caractéristiques techniques</caption>
+                <tbody>
+                  <% attributes.forEach(function (a) { %>
+                    <tr><th scope="row"><%= a.label || a.key %></th><td><%= a.value %><%= a.unit ? ' ' + a.unit : '' %></td></tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            </div>
+          <% } %>
+          <% if (p.box_contents || p.warranty) { %>
+            <div role="tabpanel" id="panel-box" aria-labelledby="tab-box" hidden>
+              <dl class="kv" style="grid-template-columns:1fr">
+                <% if (p.warranty) { %><div><dt>Garantie</dt><dd><%= p.warranty %></dd></div><% } %>
+                <% if (p.box_contents) { %><div><dt>Contenu de la boîte</dt><dd><%= p.box_contents %></dd></div><% } %>
+              </dl>
+              <% if (!p.warranty && !p.box_contents) { %>
+                <p class="muted tiny">Information non communiquée par la boutique.</p>
+              <% } %>
+            </div>
+          <% } %>
+          <% if (p.is_kit && kitComponents.length) { %>
+            <div role="tabpanel" id="panel-kit" aria-labelledby="tab-kit" hidden>
+              <p class="muted tiny">Ce kit est composé des articles suivants. La disponibilité du kit dépend du stock de chaque composant.</p>
+              <ul class="kit-list">
+                <% kitComponents.forEach(function (k) { %>
+                  <li>
+                    <span><% if (k.slug) { %><a href="/produit/<%= k.slug %>"><%= k.name %></a><% } else { %><%= k.name %><% } %></span>
+                    <span class="nowrap">× <%= k.quantity %></span>
+                  </li>
+                <% }); %>
+              </ul>
+            </div>
+          <% } %>
+          <div role="tabpanel" id="panel-ship" aria-labelledby="tab-ship" hidden>
+            <ul class="info-list">
+              <li>
+                <%- icon('store', 'md') %>
+                <div><span class="k">Retrait en boutique</span><span class="v"><%= store.city %><% if (store.region) { %>, <%= store.region %><% } %></span>
+                  <% if (pickupNote) { %><span class="tiny muted" style="display:block"><%= pickupNote %></span><% } %>
+                </div>
+              </li>
+              <li>
+                <%- icon('truck', 'md') %>
+                <div><span class="k">Livraison</span>
+                  <span class="v"><%= store.city %>, région <%= store.region %> et reste de la <%= store.country %></span>
+                  <span class="tiny muted" style="display:block">Les frais exacts sont calculés selon la destination et confirmés avant le paiement. Si aucun tarif ne s’applique, la livraison est proposée sur devis.</span>
+                </div>
+              </li>
+              <% if (enabledMethods && enabledMethods.length) { %>
+              <li>
+                <%- icon('wallet', 'md') %>
+                <div><span class="k">Paiement</span><span class="v"><%= enabledMethods.join(' · ') %></span>
+                  <span class="tiny muted" style="display:block">Aucune donnée de carte bancaire n’est enregistrée sur ce site.</span>
+                </div>
+              </li>
+              <% } %>
+            </ul>
+            <p style="margin-top:var(--space-3)"><a class="btn btn--ghost btn--sm" href="/informations/livraison-retours">Conditions de livraison et retours</a></p>
+          </div>
+        </div>
+      </div>
+      <% } %>
+    </div>
+
+    <!-- ---------------- Encadré d'achat ---------------- -->
+    <div>
+      <div class="buy-box">
+        <% if (p.category_name) { %>
+          <a class="card-cat" href="/categorie/<%= p.category_slug %>"><%= p.category_name %></a>
+        <% } %>
+        <h1><%= p.name %></h1>
+
+        <div class="buy-meta">
+          <span>Réf. <strong class="mono" data-sku><%= p.sku || '—' %></strong></span>
+          <% if (p.brand_name) { %><span>Marque : <strong><%= p.brand_name %></strong></span><% } %>
+          <span>État : <strong><%= (conditions.find(c => c.value === p.product_condition) || { label: 'Neuf' }).label %></strong></span>
+          <span>Vendu par : <strong><%= SALE_UNIT %></strong></span>
+        </div>
+
+        <% if (p.short_description) { %><p class="subtle" style="font-size:.95rem"><%= p.short_description %></p><% } %>
+
+        <div class="buy-price">
+          <% if (price.sale > 0) { %>
+            <span class="price price--lg" data-price><%= money.format(price.sale) %></span>
+            <% if (price.compareAt) { %><span class="price-compare" data-compare-price><%= money.format(price.compareAt) %></span><% } %>
+            <span class="card-unit">/ <%= SALE_UNIT %></span>
+          <% } else { %>
+            <span class="muted" data-price>Prix non communiqué</span>
+          <% } %>
+        </div>
+
+        <% if (promoActiveNow && (p.promo_starts_at || p.promo_ends_at)) { %>
+          <p class="tiny muted" style="margin-top:-8px">
+            Prix promotionnel
+            <% if (p.promo_starts_at) { %>valable depuis le <%= dates.formatDate(p.promo_starts_at) %><% } %>
+            <% if (p.promo_ends_at) { %> jusqu’au <%= dates.formatDate(p.promo_ends_at) %><% } %>.
+          </p>
+        <% } %>
+
+        <p style="margin:var(--space-3) 0">
+          <span class="availability availability--<%= avail.status %>" data-availability><%= avail.label %></span>
+        </p>
+
+        <% if (variants.length > 1) { %>
+          <fieldset class="variant-picker">
+            <legend>Choisissez votre variante</legend>
+            <div class="variant-options" style="max-height:280px;overflow-y:auto">
+              <% variantView.forEach(function (v, i) { %>
+                <label>
+                  <input type="radio" name="variantId" value="<%= v.id %>" form="form-panier" <%= i === 0 ? 'checked' : '' %> <%= v.purchasable ? '' : 'disabled' %>>
+                  <span>
+                    <%= v.label %>
+                    <span class="tiny" style="display:block;opacity:.85">
+                      <%= v.priceLabel %><% if (v.available != null) { %> · <%= v.available %> dispo.<% } %>
+                    </span>
+                  </span>
+                </label>
+              <% }); %>
+            </div>
+          </fieldset>
+        <% } else if (variants.length === 1) { %>
+          <input type="hidden" name="variantId" value="<%= variants[0].id %>" form="form-panier">
+        <% } %>
+
+        <form class="buy-actions" id="form-panier" method="post" action="/panier/ajouter" data-cart-form data-redirect="cart">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="hidden" name="productId" value="<%= p.id %>">
+          <div class="qty-input">
+            <button type="button" data-qty-step="-1" aria-label="Diminuer la quantité">−</button>
+            <label class="visually-hidden" for="qty">Quantité</label>
+            <input id="qty" type="number" name="qty" value="1" min="1" max="<%= maxQty %>" step="1" inputmode="numeric">
+            <button type="button" data-qty-step="1" aria-label="Augmenter la quantité">+</button>
+          </div>
+          <button class="btn btn--lg" type="submit" data-add-button <%= purchasability.ok ? '' : 'disabled' %>
+                  title="<%= purchasability.ok ? '' : (purchasability.reasons[0] || 'Article indisponible') %>">
+            <%- icon('cart', 'md') %>
+            <% if (avail.status === 'out') { %>Rupture de stock<% } else if (!purchasability.ok) { %>Indisponible à la vente<% } else { %>Ajouter au panier<% } %>
+          </button>
+        </form>
+
+        <% if (!purchasability.ok) { %>
+          <div class="notice" style="margin-top:var(--space-3)">
+            <strong>Pourquoi cet article n’est-il pas disponible ?</strong>
+            <ul style="margin:6px 0 0;padding-left:18px">
+              <% purchasability.reasons.forEach(function (r) { %><li><%= r %></li><% }); %>
+            </ul>
+            <p style="margin:8px 0 0">Contactez la boutique pour connaître le délai de réapprovisionnement ou demander un article équivalent.</p>
+          </div>
+        <% } %>
+
+        <div class="btn-row" style="margin-top:var(--space-3)">
+          <% if (whatsappUrl) { %>
+            <a class="btn btn--whatsapp btn--sm" href="<%= whatsappUrl %>" target="_blank" rel="noopener noreferrer">
+              <%- icon('whatsapp', 'sm') %> Poser une question
+            </a>
+          <% } %>
+          <a class="btn btn--ghost btn--sm" href="/contact"><%- icon('phone', 'sm') %> Appeler la boutique</a>
+        </div>
+        <% if (store.whatsappEnabled && store.whatsappDisclaimer) { %>
+          <p class="tiny muted" style="margin-top:var(--space-2)"><%= store.whatsappDisclaimer %></p>
+        <% } %>
+
+        <ul class="assurances" style="margin-top:var(--space-4)">
+          <li><%- icon('store', 'sm') %><span><strong>Retrait gratuit</strong> à <%= store.city %></span></li>
+          <li><%- icon('truck', 'sm') %><span><strong>Livraison</strong> <%= store.city %>, <%= store.region %>, toute la <%= store.country %></span></li>
+          <li><%- icon('shield', 'sm') %><span><strong>Commande suivie</strong> référence et lien de suivi personnels</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <% if (related && related.length) { %>
+    <section class="block" style="padding-bottom:0">
+      <div class="section-title">
+        <h2>Articles similaires</h2>
+        <a href="/categorie/<%= p.category_slug %>">Voir la catégorie <%- icon('arrow-right', 'xs') %></a>
+      </div>
+      <div class="product-grid product-grid--wide">
+        <% related.forEach(function (item) { %>
+          <%- include('/partials/product-card', { product: item }) %>
+        <% }); %>
+      </div>
+    </section>
+  <% } %>
+</div>

@@ -1,0 +1,157 @@
+<%
+/** Détail d'une commande depuis le compte client (accès vérifié côté serveur). */
+const o = order;
+const paid = ['paid', 'partially_refunded', 'refunded'].includes(o.payment_status);
+const canCancel = o.status !== 'cancelled' && !paid && ['pending', 'quote_required', 'confirmed'].includes(o.status);
+const quotePending = Boolean(o.quote_required) && o.quote_status !== 'accepted' && o.quote_status !== 'refused';
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4) var(--space-7)">
+  <%- include('/partials/breadcrumb', { crumbs: [{ label: 'Mes commandes', href: '/compte/commandes' }, { label: o.reference }] }) %>
+
+  <div class="catalog-head">
+    <div>
+      <h1 style="margin-bottom:2px">Commande <%= o.reference %></h1>
+      <p class="muted" style="margin:0"><%= dates.formatDateTime(o.placed_at) %></p>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn--quiet btn--sm" type="button" data-print><%- icon('print', 'sm') %> Imprimer</button>
+      <a class="btn btn--ghost btn--sm" href="/suivi/<%= o.tracking_token %>"><%- icon('external-link', 'sm') %> Lien de suivi</a>
+    </div>
+  </div>
+
+  <div class="account-grid">
+    <aside><%- include('/partials/account-nav', { active: 'orders' }) %></aside>
+
+    <div>
+      <% if (quotePending) { %>
+        <div class="alert alert--info">
+          <%- icon('info', 'md') %>
+          <div>
+            <strong>Livraison sur devis</strong>
+            <p style="margin:4px 0 0">
+              <% if (o.quote_status === 'sent' && o.quote_amount != null) { %>
+                La boutique propose <%= money.format(o.quote_amount) %> de frais de livraison.
+              <% } else { %>
+                La boutique calcule le coût de livraison pour votre destination.
+              <% } %>
+              Vous pouvez accepter ou refuser depuis la page de confirmation.
+            </p>
+            <p style="margin:8px 0 0"><a class="btn btn--sm" href="/commande/confirmation/<%= o.tracking_token %>">Ouvrir la confirmation</a></p>
+          </div>
+        </div>
+      <% } %>
+
+      <div class="tracking-card">
+        <h2 style="font-size:1.05rem">État</h2>
+        <div class="field-row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+          <div><span class="tiny muted">Commande</span><div><span class="pill pill--<%= statusTone('order', o.status) %>"><%= labels.order[o.status] || o.status %></span></div></div>
+          <div><span class="tiny muted">Paiement</span><div><span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span></div></div>
+          <div><span class="tiny muted">Réception</span><div><span class="pill pill--<%= statusTone('delivery', o.delivery_status) %>"><%= labels.delivery[o.delivery_status] || o.delivery_status %></span></div></div>
+        </div>
+      </div>
+
+      <div class="tracking-card" style="margin-top:var(--space-4)">
+        <h2 style="font-size:1.05rem">Chronologie</h2>
+        <ol class="timeline">
+          <% steps.forEach(function (st) { %>
+            <li data-state="<%= st.state %>">
+              <span class="t-title"><%= st.label %></span>
+              <% if (st.detail) { %><span class="t-detail" style="display:block"><%= st.detail %></span><% } %>
+              <% if (st.at) { %><span class="t-date"><%= dates.formatDateTime(st.at) %></span><% } %>
+            </li>
+          <% }); %>
+        </ol>
+      </div>
+
+      <div class="tracking-card" style="margin-top:var(--space-4)">
+        <h2 style="font-size:1.05rem">Articles</h2>
+        <div class="table-wrap" style="border:0">
+          <table class="data">
+            <caption class="visually-hidden">Articles commandés</caption>
+            <thead><tr><th scope="col">Article</th><th scope="col" class="num">Qté</th><th scope="col" class="num">P.U.</th><th scope="col" class="num">Total</th></tr></thead>
+            <tbody>
+              <% o.items.forEach(function (it) { %>
+                <tr>
+                  <td><%= it.name %><% if (it.options_label) { %> <span class="tiny muted">(<%= it.options_label %>)</span><% } %><% if (it.sku) { %><span class="tiny muted mono" style="display:block">Réf. <%= it.sku %></span><% } %></td>
+                  <td class="num"><%= it.qty %></td>
+                  <td class="num"><%= money.format(it.unit_price) %></td>
+                  <td class="num"><%= money.format(it.line_total) %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+            <tfoot>
+              <tr><td colspan="3" class="right">Sous-total</td><td class="num"><%= money.format(o.subtotal) %></td></tr>
+              <% if (o.discount > 0) { %><tr><td colspan="3" class="right">Remise</td><td class="num">− <%= money.format(o.discount) %></td></tr><% } %>
+              <tr><td colspan="3" class="right">Livraison</td><td class="num"><% if (quotePending) { %>Sur devis<% } else { %><%= money.format(o.shipping_cost) %><% } %></td></tr>
+              <tr><td colspan="3" class="right"><strong>Total</strong></td><td class="num"><strong class="price"><%= money.format(o.total) %></strong></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="split split--even" style="margin-top:var(--space-4)">
+        <div class="tracking-card">
+          <h2 style="font-size:1.05rem">Réception</h2>
+          <dl class="kv">
+            <dt>Mode</dt><dd><%= o.fulfillment_mode === 'pickup' ? 'Retrait en boutique' : 'Livraison' %></dd>
+            <% if (o.zone) { %><dt>Zone</dt><dd><%= o.zone.name %><% if (o.zone.eta_text) { %> · <%= o.zone.eta_text %><% } %></dd><% } %>
+            <% if (o.fulfillment_mode === 'delivery') { %>
+              <dt>Adresse</dt><dd><%= [o.quarter, o.address, o.city].filter(Boolean).join(', ') || '—' %><% if (o.landmark) { %> <span class="tiny muted">(<%= o.landmark %>)</span><% } %></dd>
+            <% } else { %>
+              <dt>Lieu</dt><dd><%= store.name %>, <%= store.city %></dd>
+            <% } %>
+            <dt>Destinataire</dt><dd><%= o.recipient_name %><% if (o.recipient_phone) { %> · <%= formatPhone(o.recipient_phone) %><% } %></dd>
+            <% if (o.carrier) { %><dt>Transporteur</dt><dd><%= o.carrier.name %><% if (o.tracking_reference) { %> · <span class="mono"><%= o.tracking_reference %></span><% } %></dd><% } %>
+          </dl>
+        </div>
+        <div class="tracking-card">
+          <h2 style="font-size:1.05rem">Paiement</h2>
+          <dl class="kv">
+            <dt>Moyen</dt><dd><%= o.paymentMethod ? o.paymentMethod.name : (o.payment_method_code || '—') %></dd>
+            <dt>Statut</dt><dd><%= labels.payment[o.payment_status] || o.payment_status %></dd>
+            <% if (o.paid_at) { %><dt>Reçu le</dt><dd><%= dates.formatDateTime(o.paid_at) %></dd><% } %>
+            <dt>Montant réglé</dt><dd><%= money.format(o.amount_paid) %></dd>
+            <% if (o.amount_refunded > 0) { %><dt>Remboursé</dt><dd><%= money.format(o.amount_refunded) %></dd><% } %>
+          </dl>
+          <% if (o.payments && o.payments.length) { %>
+            <details style="margin-top:var(--space-3)">
+              <summary class="tiny muted" style="cursor:pointer">Historique des tentatives (<%= o.payments.length %>)</summary>
+              <ul class="tiny muted" style="margin:6px 0 0;padding-left:18px">
+                <% o.payments.forEach(function (py) { %>
+                  <li><%= dates.formatDateTime(py.created_at) %> — <%= py.status %><% if (py.provider_reference) { %> (<span class="mono"><%= py.provider_reference %></span>)<% } %></li>
+                <% }); %>
+              </ul>
+            </details>
+          <% } %>
+        </div>
+      </div>
+
+      <% if (o.refunds && o.refunds.length) { %>
+        <div class="tracking-card" style="margin-top:var(--space-4)">
+          <h2 style="font-size:1.05rem">Remboursements</h2>
+          <ul style="margin:0;padding-left:18px;font-size:.9rem">
+            <% o.refunds.forEach(function (r) { %>
+              <li><%= dates.formatDate(r.created_at) %> — <%= money.format(r.amount) %> (<%= r.status %>)<% if (r.reason) { %> : <%= r.reason %><% } %></li>
+            <% }); %>
+          </ul>
+        </div>
+      <% } %>
+
+      <% if (canCancel) { %>
+        <div class="tracking-card no-print" style="margin-top:var(--space-4)">
+          <details>
+            <summary style="cursor:pointer;font-weight:600;color:var(--danger)">Annuler cette commande</summary>
+            <form method="post" action="/commande/<%= o.tracking_token %>/annuler" data-confirm="Annuler cette commande ? Le stock sera libéré." style="margin-top:var(--space-3)">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <div class="field">
+                <label for="reason">Motif (facultatif)</label>
+                <input id="reason" name="reason" type="text" maxlength="200">
+              </div>
+              <button class="btn btn--danger" type="submit">Confirmer l’annulation</button>
+            </form>
+          </details>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</div>

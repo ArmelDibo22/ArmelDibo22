@@ -1,0 +1,20 @@
+<%
+/** Barre mobile : accueil, catégories, recherche et panier toujours à portée du pouce. */
+const cartCount = (cart && cart.itemCount) || 0;
+%>
+<nav class="mobile-bar" aria-label="Navigation rapide">
+  <a href="/" <%- currentPath === '/' ? 'aria-current="page"' : '' %>>
+    <%- icon('store', 'lg') %><span>Accueil</span>
+  </a>
+  <button type="button" data-drawer-open aria-label="Ouvrir les catégories" aria-expanded="false" aria-controls="menu-categories">
+    <%- icon('grid', 'lg') %><span>Catégories</span>
+  </button>
+  <button type="button" data-focus-search aria-label="Rechercher un article">
+    <%- icon('search', 'lg') %><span>Recherche</span>
+  </button>
+  <a href="/panier" <%- currentPath === '/panier' ? 'aria-current="page"' : '' %>>
+    <%- icon('cart', 'lg') %><span>Panier</span>
+    <span class="badge" data-cart-count <%= cartCount ? '' : 'data-zero="true"' %>><%= cartCount || '' %></span>
+  </a>
+</nav>
+<span class="visually-hidden" data-cart-live aria-live="polite"></span>

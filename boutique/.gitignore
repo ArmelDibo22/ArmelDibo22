@@ -1,0 +1,23 @@
+# Données d'exploitation : ne jamais versionner
+data/
+!data/.gitkeep
+.env
+.env.*
+!.env.example
+
+# Journaux et sauvegardes
+*.log
+logs/
+backups/
+
+# Dépendances et artefacts
+node_modules/
+coverage/
+tmp/
+.tmp/
+
+# Éditeurs / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

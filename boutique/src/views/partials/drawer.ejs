@@ -1,0 +1,47 @@
+<%
+/** Tiroir latéral : arborescence des catégories et liens utiles (mobile). */
+const navItems = navTree();
+const infoPages = footerPages();
+%>
+<div class="drawer" id="menu-categories" data-drawer data-open="false" role="dialog" aria-modal="true" aria-label="Menu des catégories">
+  <div class="drawer-backdrop" data-drawer-close></div>
+  <div class="drawer-panel">
+    <div class="drawer-head">
+      <strong style="color:var(--brand)">Catégories</strong>
+      <button class="icon-btn" type="button" data-drawer-close aria-label="Fermer le menu"><%- icon('close', 'md') %></button>
+    </div>
+
+    <ul class="drawer-list">
+      <li><a href="/catalogue">Tout le catalogue</a></li>
+      <% navItems.forEach(function (root) { %>
+        <li>
+          <a href="/categorie/<%= root.slug %>"><%= root.name %></a>
+          <% if (root.children && root.children.length) { %>
+            <ul>
+              <% root.children.forEach(function (child) { %>
+                <li><a href="/categorie/<%= child.slug %>"><%= child.name %><% if (child.product_count) { %> <span class="muted tiny">(<%= child.product_count %>)</span><% } %></a></li>
+              <% }); %>
+            </ul>
+          <% } %>
+        </li>
+      <% }); %>
+    </ul>
+
+    <hr style="border:0;border-top:1px solid var(--border);margin:var(--space-4) 0">
+
+    <ul class="drawer-list">
+      <li><a href="/suivi"><%- icon('truck', 'sm') %> Suivre une commande</a></li>
+      <li><a href="/contact"><%- icon('map-pin', 'sm') %> Contact et localisation</a></li>
+      <li><a href="/compte"><%- icon('user', 'sm') %> <%= customer ? 'Mon compte' : 'Se connecter' %></a></li>
+      <% infoPages.forEach(function (p) { %>
+        <li><a href="/informations/<%= p.slug %>"><%= p.title %></a></li>
+      <% }); %>
+    </ul>
+
+    <% if (store.phoneDisplay) { %>
+      <p style="margin-top:var(--space-4)">
+        <a class="btn btn--ghost btn--block" href="tel:<%= store.phoneRaw %>"><%- icon('phone', 'sm') %> <%= store.phoneDisplay %></a>
+      </p>
+    <% } %>
+  </div>
+</div>

@@ -1,0 +1,242 @@
+<%
+/**
+ * Confirmation de commande.
+ * Distingue clairement : statut de la commande, statut du paiement, statut de
+ * la livraison. Un paiement n'est annoncé comme reçu que s'il est confirmé.
+ */
+const o = order;
+const paid = ['paid', 'partially_refunded', 'refunded'].includes(o.payment_status);
+const awaitingCash = o.payment_status === 'awaiting_confirmation';
+const cancelled = o.status === 'cancelled';
+const quotePending = Boolean(o.quote_required) && o.quote_status !== 'accepted' && o.quote_status !== 'refused';
+const canCancel = !cancelled && !paid && ['pending', 'quote_required', 'confirmed'].includes(o.status);
+const trackingHref = o.trackingLink;
+const heroTone = cancelled ? 'confirm-hero--warn' : (quotePending ? 'confirm-hero--info' : 'confirm-hero');
+const paymentTone = paid ? 'success' : (awaitingCash ? 'warn' : (o.payment_status === 'failed' ? 'danger' : 'info'));
+%>
+<div class="container" style="padding-top:var(--space-5);padding-bottom:var(--space-7);max-width:860px">
+  <% if (duplicate) { %>
+    <div class="alert alert--info">
+      <%- icon('info', 'md') %>
+      <span>Cette commande avait déjà été enregistrée : aucune deuxième commande n’a été créée.</span>
+    </div>
+  <% } %>
+
+  <div class="confirm-hero <%= heroTone %>">
+    <h1>
+      <%- icon(cancelled ? 'alert' : (quotePending ? 'info' : 'check-circle'), 'lg') %>
+      <% if (cancelled) { %>Commande annulée<% } else if (quotePending) { %>Commande enregistrée — devis de livraison à valider<% } else { %>Commande enregistrée<% } %>
+    </h1>
+    <p class="subtle" style="margin-bottom:var(--space-4)">
+      <% if (cancelled) { %>
+        La commande <%= o.reference %> a été annulée. Le stock a été libéré et aucune somme n’est due.
+      <% } else if (quotePending) { %>
+        Votre commande est enregistrée, mais aucun tarif de livraison n’est défini pour cette destination.
+        La boutique doit vous proposer un montant : <strong>aucun paiement ne sera demandé avant votre accord</strong>.
+      <% } else { %>
+        Merci. Votre commande est enregistrée et transmise à la boutique.
+      <% } %>
+    </p>
+
+    <dl class="kv" style="grid-template-columns:minmax(140px,auto) 1fr">
+      <dt>Référence</dt>
+      <dd><span class="ref-badge"><%= o.reference %></span>
+        <button class="link-btn" type="button" data-copy="<%= o.reference %>" style="margin-left:8px">Copier</button>
+      </dd>
+      <dt>Date</dt><dd><%= dates.formatDateTime(o.placed_at) %></dd>
+      <dt>Suivi</dt>
+      <dd><a href="<%= trackingHref %>"><%= config.publicUrl %><%= trackingHref %></a>
+        <span class="tiny muted" style="display:block">Conservez ce lien : il permet de suivre la commande sans compte.</span>
+      </dd>
+      <dt>Mode de réception</dt>
+      <dd><%= o.fulfillment_mode === 'pickup' ? `Retrait en boutique — ${store.city}` : `Livraison — ${o.zone ? o.zone.name : ''}${o.city ? ' · ' + o.city : ''}${o.quarter ? ' · ' + o.quarter : ''}` %></dd>
+      <dt>Moyen de paiement</dt>
+      <dd><%= o.paymentMethod ? o.paymentMethod.name : (o.payment_method_code || '—') %></dd>
+    </dl>
+
+    <div class="btn-row" style="margin-top:var(--space-4)">
+      <a class="btn btn--ghost" href="<%= trackingHref %>"><%- icon('truck', 'sm') %> Suivre ma commande</a>
+      <button class="btn btn--quiet" type="button" data-print><%- icon('print', 'sm') %> Imprimer le récapitulatif</button>
+      <% if (whatsappUrl) { %>
+        <a class="btn btn--whatsapp" href="<%= whatsappUrl %>" target="_blank" rel="noopener noreferrer"><%- icon('whatsapp', 'sm') %> Envoyer le récapitulatif</a>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- ---------------- Trois statuts distincts ---------------- -->
+  <div class="tracking-card">
+    <h2 style="font-size:1.05rem">État de la commande</h2>
+    <div class="field-row" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div>
+        <span class="k tiny muted">Commande</span>
+        <div><span class="pill pill--brand"><%= o.statusLabel %></span></div>
+      </div>
+      <div>
+        <span class="k tiny muted">Paiement</span>
+        <div><span class="pill pill--<%= paymentTone %>"><%= o.paymentStatusLabel %></span></div>
+      </div>
+      <div>
+        <span class="k tiny muted">Livraison / retrait</span>
+        <div><span class="pill pill--info"><%= o.deliveryStatusLabel %></span></div>
+      </div>
+    </div>
+
+    <% if (paid && o.paid_at) { %>
+      <p class="tiny muted" style="margin-top:var(--space-3)">Paiement confirmé le <%= dates.formatDateTime(o.paid_at) %> pour <%= money.format(o.amount_paid) %>.</p>
+    <% } else if (awaitingCash) { %>
+      <p class="tiny muted" style="margin-top:var(--space-3)">
+        Le règlement s’effectue à la réception. La boutique enregistrera l’encaissement et le statut passera à « payé ».
+        Tant que cette confirmation n’est pas faite, la commande reste « en attente de paiement ».
+      </p>
+    <% } %>
+  </div>
+
+  <!-- ---------------- Devis de livraison ---------------- -->
+  <% if (quotePending) { %>
+    <div class="tracking-card" style="border-color:#f0d9a8">
+      <h2 style="font-size:1.05rem">Livraison sur devis</h2>
+      <% if (o.quote_status === 'sent' && o.quote_amount != null) { %>
+        <p>La boutique vous propose des frais de livraison de <strong class="price"><%= money.format(o.quote_amount) %></strong>
+        <% if (o.zone && o.zone.eta_text) { %> (délai indiqué : <%= o.zone.eta_text %>)<% } %>.</p>
+        <p class="tiny muted">Nouveau total après acceptation : <strong><%= money.format(o.subtotal - o.discount + Number(o.quote_amount)) %></strong>.</p>
+        <div class="btn-row" style="margin-top:var(--space-3)">
+          <form method="post" action="/commande/<%= o.tracking_token %>/devis">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="action" value="accepter">
+            <button class="btn" type="submit"><%- icon('check', 'sm') %> Accepter le devis et payer</button>
+          </form>
+          <form method="post" action="/commande/<%= o.tracking_token %>/devis" data-confirm="Refuser le devis annule la commande. Continuer ?">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="action" value="refuser">
+            <button class="btn btn--ghost" type="submit">Refuser et annuler la commande</button>
+          </form>
+        </div>
+      <% } else { %>
+        <div class="alert alert--info" style="margin:0">
+          <%- icon('clock', 'md') %>
+          <span>La boutique calcule actuellement le coût de livraison pour <strong><%= o.city || 'votre destination' %></strong>.
+          Le montant apparaîtra sur cette page et vous devrez l’accepter avant tout paiement.
+          Vous pouvez aussi choisir le retrait en boutique en nous contactant.</span>
+        </div>
+      <% } %>
+    </div>
+  <% } %>
+
+  <!-- ---------------- Paiement à effectuer ---------------- -->
+  <% if (needsPayment && !cancelled && !quotePending) { %>
+    <div class="tracking-card">
+      <h2 style="font-size:1.05rem">Finaliser le paiement</h2>
+      <% if (method && method.instructions) { %><p class="subtle"><%= method.instructions %></p><% } %>
+      <% if (o.payment_status === 'failed') { %>
+        <div class="alert alert--error"><%- icon('alert', 'md') %><span>La tentative de paiement a échoué. Vous pouvez réessayer ou choisir un autre moyen.</span></div>
+      <% } %>
+      <form method="post" action="/commande/<%= o.tracking_token %>/payer" class="inline-form" style="margin-top:var(--space-3)">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="field" style="flex:1 1 220px">
+          <label for="payment_method">Moyen de paiement</label>
+          <select id="payment_method" name="payment_method">
+            <option value="<%= o.payment_method_code %>" selected><%= method ? method.name : o.payment_method_code %></option>
+          </select>
+        </div>
+        <button class="btn" type="submit"><%- icon('wallet', 'sm') %> Payer <%= money.format(o.total) %></button>
+      </form>
+      <p class="tiny muted" style="margin-top:var(--space-2)">
+        Le paiement n’est validé qu’après confirmation authentifiée du prestataire. Une capture d’écran ne suffit pas.
+      </p>
+    </div>
+  <% } %>
+
+  <!-- ---------------- Articles ---------------- -->
+  <div class="tracking-card">
+    <h2 style="font-size:1.05rem">Articles commandés</h2>
+    <div class="table-wrap" style="border:0">
+      <table class="data">
+        <caption class="visually-hidden">Détail des articles de la commande <%= o.reference %></caption>
+        <thead>
+          <tr><th scope="col">Article</th><th scope="col" class="num">Qté</th><th scope="col" class="num">Prix unitaire</th><th scope="col" class="num">Total</th></tr>
+        </thead>
+        <tbody>
+          <% o.items.forEach(function (it) { %>
+            <tr>
+              <td>
+                <strong><%= it.name %></strong>
+                <% if (it.options_label) { %><span class="tiny muted" style="display:block"><%= it.options_label %></span><% } %>
+                <% if (it.sku) { %><span class="tiny muted mono">Réf. <%= it.sku %></span><% } %>
+                <% if (it.is_kit) { %><span class="pill pill--brand" style="margin-left:6px">Kit</span><% } %>
+              </td>
+              <td class="num"><%= it.qty %></td>
+              <td class="num"><%= money.format(it.unit_price) %></td>
+              <td class="num"><strong><%= money.format(it.line_total) %></strong></td>
+            </tr>
+          <% }); %>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="3" class="right">Sous-total</td><td class="num"><%= money.format(o.subtotal) %></td></tr>
+          <% if (o.discount > 0) { %><tr><td colspan="3" class="right">Remise</td><td class="num">− <%= money.format(o.discount) %></td></tr><% } %>
+          <tr>
+            <td colspan="3" class="right"><%= o.fulfillment_mode === 'pickup' ? 'Retrait en boutique' : 'Livraison' %></td>
+            <td class="num">
+              <% if (o.quote_required && o.quote_status !== 'accepted') { %>Sur devis<% } else if (o.shipping_cost > 0) { %><%= money.format(o.shipping_cost) %><% } else { %>Sans frais<% } %>
+            </td>
+          </tr>
+          <tr><td colspan="3" class="right"><strong>Total</strong></td><td class="num"><strong class="price price--lg"><%= money.format(o.total) %></strong></td></tr>
+          <% if (o.amount_paid > 0) { %><tr><td colspan="3" class="right">Déjà réglé</td><td class="num"><%= money.format(o.amount_paid) %></td></tr><% } %>
+          <% if (o.amount_refunded > 0) { %><tr><td colspan="3" class="right">Remboursé</td><td class="num">− <%= money.format(o.amount_refunded) %></td></tr><% } %>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- ---------------- Chronologie ---------------- -->
+  <div class="tracking-card">
+    <h2 style="font-size:1.05rem">Chronologie</h2>
+    <ol class="timeline">
+      <% const scopeLabels = { order: 'Commande', payment: 'Paiement', delivery: 'Livraison', quote: 'Devis', note: 'Note' }; %>
+      <% o.publicEvents.forEach(function (ev) { %>
+        <li data-state="<%= /annul/i.test(ev.message) ? 'cancelled' : 'done' %>">
+          <span class="t-title"><%= scopeLabels[ev.scope] || 'Suivi' %> — <%= ev.message %></span>
+          <% if (ev.from_value || ev.to_value) { %>
+            <span class="t-detail" style="display:block"><%= ev.from_value || '—' %> → <%= ev.to_value || '—' %></span>
+          <% } %>
+          <span class="t-date"><%= dates.formatDateTime(ev.created_at) %></span>
+        </li>
+      <% }); %>
+      <% o.deliveryEvents.forEach(function (ev) { %>
+        <li data-state="done">
+          <span class="t-title"><%= ev.label %></span>
+          <% if (ev.detail || ev.location) { %><span class="t-detail" style="display:block"><%= ev.detail %><%= ev.location ? ' — ' + ev.location : '' %></span><% } %>
+          <span class="t-date"><%= dates.formatDateTime(ev.happened_at) %></span>
+        </li>
+      <% }); %>
+    </ol>
+    <% if (o.carrier && o.tracking_reference) { %>
+      <p class="tiny muted">
+        Transporteur : <%= o.carrier.name %>
+        <% if (o.trackingUrl) { %> · <a href="<%= o.trackingUrl %>" target="_blank" rel="noopener noreferrer">Suivi transporteur (<%= o.tracking_reference %>)</a>
+        <% } else { %> · Référence : <span class="mono"><%= o.tracking_reference %></span><% } %>
+      </p>
+    <% } %>
+  </div>
+
+  <!-- ---------------- Actions ---------------- -->
+  <div class="tracking-card no-print">
+    <% if (canCancel) { %>
+      <details>
+        <summary style="cursor:pointer;font-weight:600;color:var(--danger)">Annuler cette commande</summary>
+        <form method="post" action="/commande/<%= o.tracking_token %>/annuler" data-confirm="Annuler définitivement cette commande ? Le stock sera libéré." style="margin-top:var(--space-3)">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field">
+            <label for="reason">Motif (facultatif)</label>
+            <input id="reason" name="reason" type="text" maxlength="200" placeholder="Ex. : commande passée par erreur">
+          </div>
+          <button class="btn btn--danger" type="submit">Confirmer l’annulation</button>
+        </form>
+      </details>
+    <% } else if (!cancelled) { %>
+      <p class="tiny muted" style="margin:0">
+        Pour modifier ou annuler cette commande, contactez la boutique
+        <% if (store.phoneDisplay) { %>au <a href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a><% } else { %><a href="/contact">via le formulaire de contact</a><% } %>.
+      </p>
+    <% } %>
+  </div>
+</div>

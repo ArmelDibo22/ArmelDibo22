@@ -1,0 +1,70 @@
+<%
+/**
+ * Gabarit minimal : tunnel de commande, confirmation et passerelle de
+ * démonstration. Pas de navigation commerciale, pas de tiroir : l'attention
+ * reste sur l'action en cours.
+ */
+%>
+<!doctype html>
+<html lang="fr">
+<head>
+<%- include('/partials/head') %>
+</head>
+<body data-density="<%= theme.density %>" class="layout-min">
+<a class="skip-link" href="#contenu">Aller au contenu</a>
+
+<% if (store.demoBanner) { %>
+<div class="notice-bar notice-bar--demo" role="note">
+  <div class="container"><span><strong>Démonstration</strong> — aucun paiement réel n’est effectué.</span></div>
+</div>
+<% } %>
+
+<header class="site-header">
+  <div class="container header-top">
+    <a class="brand" href="/" aria-label="<%= store.name %> — accueil">
+      <span class="brand-mark">
+        <% if (store.logoKey) { %>
+          <img src="<%= mediaUrl(store.logoKey, 'thumb') %>" alt="" width="40" height="40">
+        <% } else { %>
+          <abbr title="<%= store.name %>" style="text-decoration:none"><%= (store.shortName || 'ETS').split(' ').filter(Boolean).slice(-2).map(w => w[0]).join('') %></abbr>
+        <% } %>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name"><%= store.shortName || store.name %></span>
+        <span class="brand-place"><%= store.city %><% if (store.region) { %> · <%= store.region %><% } %></span>
+      </span>
+    </a>
+
+    <div class="header-actions" style="margin-left:auto">
+      <span class="pill pill--success" title="Vos informations transitent en HTTPS et ne sont jamais stockées dans votre navigateur">
+        <%- icon('shield', 'xs') %> Commande sécurisée
+      </span>
+      <% if (store.phoneDisplay) { %>
+        <a class="icon-btn" href="tel:<%= store.phoneRaw %>" title="Appeler la boutique" aria-label="Appeler la boutique"><%- icon('phone', 'lg') %></a>
+      <% } %>
+    </div>
+  </div>
+</header>
+
+<%- include('/partials/flashes') %>
+
+<main id="contenu">
+<%- body %>
+</main>
+
+<footer class="site-footer" style="margin-top:var(--space-7);padding:var(--space-5) 0">
+  <div class="container">
+    <div class="footer-bottom" style="border-top:0;margin-top:0;padding-top:0">
+      <span>© <%= year %> <%= store.name %> — <%= store.city %>, <%= store.region %></span>
+      <span>
+        <a href="/suivi">Suivi de commande</a> ·
+        <a href="/contact">Contact</a> ·
+        <a href="/catalogue">Retour au catalogue</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/js/app.js" defer></script>
+</body>
+</html>

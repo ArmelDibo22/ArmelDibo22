@@ -1,0 +1,136 @@
+<%
+/**
+ * Accueil.
+ * Choix assumé : pas de grande bannière décorative qui occuperait tout le
+ * premier écran sur mobile. Une introduction courte, puis immédiatement les
+ * rayons et les articles. Aucun compteur de ventes, aucun témoignage inventé.
+ */
+const intro = store.homeIntro || `Papeterie et fournitures scolaires, informatique et accessoires, téléphones et accessoires à ${store.city}. Commandez en ligne, retirez en boutique ou faites-vous livrer.`;
+const zonesNote = tree.length ? '' : '';
+%>
+<section class="home-intro">
+  <div class="container home-intro-grid">
+    <div>
+      <span class="eyebrow"><%= store.city %><% if (store.region) { %> · région <%= store.region %><% } %> · <%= store.country %></span>
+      <h1><%= store.name %></h1>
+      <p><%= intro %></p>
+      <div class="home-cta">
+        <a class="btn" href="/catalogue"><%- icon('grid', 'sm') %> Voir le catalogue</a>
+        <a class="btn btn--ghost" href="/contact"><%- icon('phone', 'sm') %> Nous contacter</a>
+        <% if (store.whatsappEnabled && store.whatsapp && whatsappUrl) { %>
+          <a class="btn btn--whatsapp" href="<%= whatsappUrl %>" target="_blank" rel="noopener noreferrer">
+            <%- icon('whatsapp', 'sm') %> WhatsApp
+          </a>
+        <% } %>
+      </div>
+    </div>
+
+    <ul class="assurances" aria-label="Nos services">
+      <li>
+        <%- icon('store', 'sm') %>
+        <span><strong>Retrait en boutique</strong> Retirez votre commande à <%= store.city %>, sans frais de livraison.</span>
+      </li>
+      <li>
+        <%- icon('truck', 'sm') %>
+        <span><strong>Livraison</strong> <%= store.city %>, région <%= store.region %> et reste de la <%= store.country %>. Frais confirmés avant paiement.</span>
+      </li>
+      <li>
+        <%- icon('wallet', 'sm') %>
+        <span><strong>Paiement souple</strong> Mobile Money ou paiement au retrait / à la livraison, selon les zones desservies.</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<% if (totals.published > 0) { %>
+  <% if (tree.length) { %>
+  <section class="block">
+    <div class="container">
+      <div class="section-title">
+        <h2>Nos rayons</h2>
+        <a href="/catalogue">Tout le catalogue <%- icon('arrow-right', 'xs') %></a>
+      </div>
+      <div class="family-grid">
+        <% tree.forEach(function (root) { %>
+          <a class="family-card" href="/categorie/<%= root.slug %>">
+            <h3><%= root.name %></h3>
+            <p><%= root.description ? root.description.slice(0, 110) : `${root.children.length} sous-catégorie(s) · ${root.product_count} article(s)` %></p>
+            <span class="family-links">
+              <% root.children.slice(0, 6).forEach(function (child) { %>
+                <span class="chip"><%= child.name %></span>
+              <% }); %>
+              <% if (root.children.length > 6) { %><span class="chip">+<%= root.children.length - 6 %></span><% } %>
+            </span>
+          </a>
+        <% }); %>
+      </div>
+    </div>
+  </section>
+  <% } %>
+
+  <% if (promos.length) { %>
+  <section class="block">
+    <div class="container">
+      <div class="section-title">
+        <h2>En promotion</h2>
+        <a href="/catalogue?promo=1">Toutes les promotions <%- icon('arrow-right', 'xs') %></a>
+      </div>
+      <div class="product-grid">
+        <% promos.forEach(function (item) { %>
+          <%- include('/partials/product-card', { product: item }) %>
+        <% }); %>
+      </div>
+    </div>
+  </section>
+  <% } %>
+
+  <section class="block">
+    <div class="container">
+      <div class="section-title">
+        <h2><%= featured.length ? 'Notre sélection' : 'Nouveautés' %></h2>
+        <a href="/catalogue?tri=nouveaute">Voir les nouveautés <%- icon('arrow-right', 'xs') %></a>
+      </div>
+      <div class="product-grid product-grid--wide">
+        <% (featured.length ? featured : fresh).forEach(function (item) { %>
+          <%- include('/partials/product-card', { product: item }) %>
+        <% }); %>
+      </div>
+    </div>
+  </section>
+
+  <% if (featured.length && fresh.length) { %>
+  <section class="block">
+    <div class="container">
+      <div class="section-title">
+        <h2>Derniers arrivages</h2>
+        <a href="/catalogue?tri=nouveaute">Tout voir <%- icon('arrow-right', 'xs') %></a>
+      </div>
+      <div class="product-grid product-grid--wide">
+        <% fresh.slice(0, 5).forEach(function (item) { %>
+          <%- include('/partials/product-card', { product: item }) %>
+        <% }); %>
+      </div>
+    </div>
+  </section>
+  <% } %>
+<% } else { %>
+  <section class="block">
+    <div class="container">
+      <div class="state">
+        <%- icon('package', 'xl') %>
+        <h2>Catalogue en cours de préparation</h2>
+        <p>
+          Les articles ne sont pas encore publiés. Aucun produit n’est proposé tant que son prix,
+          sa référence et sa disponibilité n’ont pas été confirmés par la boutique.
+        </p>
+        <div class="btn-row" style="justify-content:center">
+          <a class="btn" href="/contact"><%- icon('phone', 'sm') %> Demander un article</a>
+          <% if (store.phoneDisplay) { %>
+            <a class="btn btn--ghost" href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </section>
+<% } %>
+<% void zonesNote; %>

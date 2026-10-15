@@ -1,0 +1,63 @@
+<%
+/**
+ * Carte produit (utilisée en grille).
+ * Attend une variable `p` (produit hydraté) et, en option, `lazy` / `priority`.
+ */
+const p = product;
+const lazy = typeof cardLazy === 'undefined' ? true : cardLazy;
+const priceInfo = p.price_info || {};
+const avail = p.availability || { status: 'out', label: 'Indisponible' };
+const priceText = priceInfo.range
+  ? `${money.format(priceInfo.range.min)} – ${money.format(priceInfo.range.max)}`
+  : (priceInfo.sale > 0 ? money.format(priceInfo.sale) : '');
+const imageKey = p.image && p.image.fileKey ? p.image.fileKey : '';
+const alt = (p.image && p.image.alt) || p.name;
+%>
+<article class="card" data-product-card>
+  <a href="/produit/<%= p.slug %>" aria-label="<%= p.name %>">
+    <div class="card-media">
+      <% if (p.has_promo) { %><span class="tag tag--promo">-<%= priceInfo.discountPercent || Math.round((1 - priceInfo.sale / Math.max(1, priceInfo.compareAt || priceInfo.base)) * 100) %>%</span><% } %>
+      <% if (avail.status === 'out') { %><span class="tag tag--out">Rupture</span>
+      <% } else if (avail.status === 'low') { %><span class="tag tag--low">Stock limité</span><% } %>
+      <% if (p.is_kit) { %><span class="tag tag--kit" style="top:auto;bottom:8px;left:8px">Kit</span><% } %>
+      <% if (p.product_condition === 'reconditionne') { %><span class="tag tag--recond" style="top:auto;bottom:8px;right:8px;left:auto">Reconditionné</span><% } %>
+      <% if (imageKey) { %>
+        <img src="<%= lazy ? '' : mediaUrl(imageKey, 'medium') %>" <%= lazy ? `data-src="${mediaUrl(imageKey, 'medium')}"` : '' %>
+             alt="<%= alt %>" width="400" height="400" loading="<%= lazy ? 'lazy' : 'eager' %>" decoding="async">
+      <% } else { %>
+        <span class="ph" aria-hidden="true"><%- icon('image', 'xl') %></span>
+      <% } %>
+    </div>
+    <div class="card-body">
+      <% if (p.category_name) { %><span class="card-cat"><%= p.category_name %></span><% } %>
+      <h3 class="card-title"><%= p.name %></h3>
+      <% if (p.excerpt) { %><span class="tiny muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden"><%= p.excerpt %></span><% } %>
+      <div class="card-price">
+        <% if (priceText) { %>
+          <span class="price"><%= priceText %></span>
+          <% if (priceInfo.compareAt) { %><span class="price-compare"><%= money.format(priceInfo.compareAt) %></span><% } %>
+        <% } else { %>
+          <span class="muted tiny">Prix sur demande</span>
+        <% } %>
+      </div>
+      <span class="card-unit"><%= p.unit_label || 'Pièce' %><% if (p.brand_name) { %> · <%= p.brand_name %><% } %></span>
+    </div>
+  </a>
+  <div class="card-foot">
+    <% if (p.purchasable && !p.has_variants) { %>
+      <form method="post" action="/panier/ajouter" data-cart-form>
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <input type="hidden" name="productId" value="<%= p.id %>">
+        <input type="hidden" name="qty" value="1">
+        <button class="btn btn--quiet btn--sm btn--block" type="submit">
+          <%- icon('cart', 'sm') %> Ajouter
+        </button>
+      </form>
+    <% } else { %>
+      <a class="btn btn--quiet btn--sm btn--block" href="/produit/<%= p.slug %>">
+        <%- icon(p.has_variants ? 'layers' : 'eye', 'sm') %>
+        <%= p.has_variants ? 'Choisir une variante' : (avail.status === 'out' ? 'Rupture de stock' : 'Voir l’article') %>
+      </a>
+    <% } %>
+  </div>
+</article>

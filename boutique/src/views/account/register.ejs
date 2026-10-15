@@ -1,0 +1,84 @@
+<%
+/** Création de compte client. E-mail non obligatoire si un téléphone est fourni. */
+const errs = (typeof errors !== 'undefined' && errors) ? errors : {};
+const v = (typeof values !== 'undefined' && values) ? values : {};
+const emailMandatory = Boolean(appSettings['commerce.email_required']);
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4)">
+  <div class="auth-card">
+    <h1>Créer un compte</h1>
+    <p class="muted" style="font-size:.92rem">
+      Un compte sert uniquement à retrouver vos commandes et à pré-remplir vos coordonnées.
+      Il n’est pas nécessaire pour acheter.
+    </p>
+
+    <form method="post" action="/compte/inscription" novalidate style="margin-top:var(--space-4)">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="fullName">Nom et prénoms <span class="required-mark" aria-hidden="true">*</span></label>
+        <input id="fullName" name="fullName" type="text" required maxlength="120" autocomplete="name"
+               value="<%= v.fullName || '' %>" aria-invalid="<%= errs.fullName ? 'true' : 'false' %>">
+        <% if (errs.fullName) { %><span class="field-error" role="alert"><%= errs.fullName %></span><% } %>
+      </div>
+
+      <div class="field">
+        <label for="phone">Téléphone <span class="required-mark" aria-hidden="true">*</span></label>
+        <input id="phone" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel"
+               placeholder="07 58 11 38 57" value="<%= v.phone || '' %>"
+               aria-describedby="phone-help" aria-invalid="<%= errs.phone ? 'true' : 'false' %>">
+        <span id="phone-help" class="field-help">Sert à vous identifier et à vous joindre pour les livraisons.</span>
+        <% if (errs.phone) { %><span class="field-error" role="alert"><%= errs.phone %></span><% } %>
+      </div>
+
+      <div class="field">
+        <label for="email">E-mail <%= emailMandatory ? '' : '(facultatif)' %></label>
+        <input id="email" name="email" type="email" maxlength="200" autocomplete="email"
+               value="<%= v.email || '' %>" aria-describedby="email-help"
+               aria-invalid="<%= errs.email ? 'true' : 'false' %>">
+        <span id="email-help" class="field-help">
+          <% if (emailMandatory) { %>Nécessaire : il sert d’identifiant de connexion.<% } else { %>Non obligatoire. Aucune lettre d’information n’est envoyée sans votre consentement.<% } %>
+        </span>
+        <% if (errs.email) { %><span class="field-error" role="alert"><%= errs.email %></span><% } %>
+      </div>
+
+      <div class="field">
+        <label for="password">Mot de passe <span class="required-mark" aria-hidden="true">*</span></label>
+        <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password"
+               aria-describedby="password-help" aria-invalid="<%= errs.password ? 'true' : 'false' %>">
+        <span id="password-help" class="field-help">
+          10 caractères minimum. Il est conservé chiffré (empreinte scrypt), jamais en clair.
+        </span>
+        <% if (errs.password) { %><span class="field-error" role="alert"><%= errs.password %></span><% } %>
+      </div>
+
+      <% if (marketingConsentEnabled) { %>
+        <div class="field">
+          <label class="checkbox">
+            <input type="checkbox" name="marketing" value="1" <%= v.marketing ? 'checked' : '' %>>
+            <span>
+              J’accepte de recevoir des informations sur les nouveautés et promotions.
+              <span class="tiny muted" style="display:block">
+                Facultatif et sans effet sur votre compte. Retrait possible à tout moment dans « Mes informations ».
+              </span>
+            </span>
+          </label>
+        </div>
+      <% } %>
+
+      <label class="checkbox">
+        <input type="checkbox" required>
+        <span>
+          J’ai lu la <a href="/informations/confidentialite" target="_blank" rel="noopener">politique de confidentialité</a>
+          et les <a href="/informations/conditions" target="_blank" rel="noopener">conditions de vente</a>.
+        </span>
+      </label>
+
+      <button class="btn btn--block" type="submit" style="margin-top:var(--space-3)"><%- icon('user', 'sm') %> Créer mon compte</button>
+    </form>
+
+    <p class="tiny muted" style="margin-top:var(--space-4)">
+      Vous avez déjà un compte ? <a href="/compte/connexion">Connectez-vous</a>.
+    </p>
+  </div>
+</div>

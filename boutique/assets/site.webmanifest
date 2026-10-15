@@ -1,0 +1,19 @@
+{
+  "name": "ETS LE PRIVILÈGE DAOUKRO",
+  "short_name": "LE PRIVILÈGE",
+  "description": "Papeterie, informatique et téléphonie à Daoukro (région Iffou). Commande en ligne, retrait en boutique ou livraison.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#14294F",
+  "icons": [
+    {
+      "src": "/assets/img/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

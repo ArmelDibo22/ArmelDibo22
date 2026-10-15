@@ -1,0 +1,112 @@
+<%
+/**
+ * Médiathèque : toutes les images téléversées, leur usage et leur poids.
+ * Les images sont stockées sur le disque du serveur (hors base), déclinées en
+ * plusieurs tailles et servies en WebP avec repli JPEG.
+ */
+const list = items || [];
+const totalBytes = list.reduce((sum, m) => sum + Number(m.bytes || 0), 0);
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Médiathèque</h1>
+    <p class="sub">
+      <%= pagination.total %> fichier(s) · page <%= pagination.page %>/<%= pagination.pages %>
+      <% if (totalBytes) { %> · <%= (totalBytes / 1024 / 1024).toFixed(1).replace('.', ',') %> Mo sur cette page<% } %>
+    </p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Ajouter des images</h2>
+    <span class="hint">JPEG, PNG, WebP, GIF, AVIF · <%= config.uploadLimitMb %> Mo par image</span>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/admin/medias" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="form-grid">
+        <div class="field">
+          <label for="medias-files">Fichiers</label>
+          <div class="drop-zone">
+            <input id="medias-files" name="images" type="file" accept="<%= (config.allowedImageTypes || []).join(',') %>" multiple required>
+            <p style="margin:0 0 6px"><%- icon('camera', 'lg') %></p>
+            <label for="medias-files" class="btn btn--sm btn--ghost" style="cursor:pointer">Choisir des images</label>
+            <p class="tiny muted" style="margin:8px 0 0">
+              Chaque image est redimensionnée et déclinée en plusieurs tailles pour l’affichage mobile.
+              L’original est conservé.
+            </p>
+          </div>
+        </div>
+        <div class="field">
+          <label for="medias-alt">Texte alternatif commun (facultatif)</label>
+          <input id="medias-alt" name="alt" type="text" maxlength="250" placeholder="Description courte pour l’accessibilité">
+          <span class="field-help">
+            Utile pour les lecteurs d’écran et le référencement. Vous pouvez le préciser ensuite sur chaque fiche produit.
+          </span>
+        </div>
+        <div class="field">
+          <label for="medias-product">Rattacher à un article (facultatif)</label>
+          <input id="medias-product" name="product_id" type="number" min="1" step="1" inputmode="numeric" placeholder="Identifiant de l’article">
+          <span class="field-help">Laissez vide pour un simple dépôt en médiathèque.</span>
+        </div>
+      </div>
+      <button class="btn" type="submit"><%- icon('upload', 'sm') %> Téléverser</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>Fichiers</h2><span class="hint">Du plus récent au plus ancien</span></div>
+  <div class="panel-body">
+    <% if (!list.length) { %>
+      <p class="empty-row">Aucune image pour l’instant.</p>
+    <% } else { %>
+      <div class="media-grid">
+        <% list.forEach(function (m) { %>
+          <div class="media-tile">
+            <div class="m-img">
+              <img src="<%= mediaUrl(m.file_key, 'thumb') %>" alt="<%= m.alt || m.filename %>" loading="lazy">
+            </div>
+            <div class="m-meta">
+              <strong title="<%= m.filename %>"><%= m.filename || m.file_key %></strong>
+              <span><%= m.width || '?' %>×<%= m.height || '?' %> · <%= Math.max(1, Math.round(m.bytes / 1024)) %> Ko</span>
+              <span style="display:block"><%= dates.formatDate(m.created_at) %></span>
+              <% if (m.usages) { %>
+                <span class="pill pill--brand" style="margin-top:4px">
+                  utilisé <%= m.usages %>×<%= m.product_name ? ' · ' + m.product_name : '' %>
+                </span>
+              <% } else { %>
+                <span class="pill" style="margin-top:4px">non utilisé</span>
+              <% } %>
+            </div>
+            <div class="btn-row" style="padding:6px;gap:4px">
+              <a class="btn btn--sm btn--quiet" href="<%= mediaUrl(m.file_key, 'original') %>" target="_blank" rel="noopener" title="Ouvrir l’original">
+                <%- icon('external-link', 'xs') %><span class="visually-hidden">Ouvrir</span>
+              </a>
+              <% if (m.product_id) { %>
+                <a class="btn btn--sm btn--quiet" href="/admin/produits/<%= m.product_id %>#images" title="Article lié">
+                  <%- icon('box', 'xs') %><span class="visually-hidden">Article lié</span>
+                </a>
+              <% } %>
+              <% if (can('catalog.delete')) { %>
+                <form method="post" action="/admin/medias/<%= m.id %>/supprimer" style="display:inline"
+                      data-confirm="Supprimer ce fichier du serveur ?<%= m.usages ? ' Il est encore utilisé par un article.' : '' %>">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button class="btn btn--sm btn--quiet" type="submit" title="Supprimer" <%= m.usages ? 'disabled' : '' %>>
+                    <%- icon('trash', 'xs') %><span class="visually-hidden">Supprimer</span>
+                  </button>
+                </form>
+              <% } %>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+      <%- include('/partials/pagination', { pagination }) %>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

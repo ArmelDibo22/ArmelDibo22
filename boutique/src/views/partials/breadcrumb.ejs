@@ -1,0 +1,25 @@
+<%
+/** Fil d'Ariane. Attend `crumbs` = [{label, href}] ; le dernier élément est la page courante. */
+const list = typeof crumbs !== 'undefined' && Array.isArray(crumbs) ? crumbs : [];
+%>
+<% if (list.length) { %>
+<nav aria-label="Fil d'Ariane">
+  <ol class="breadcrumb" itemscope itemtype="https://schema.org/BreadcrumbList">
+    <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <a itemprop="item" href="/"><span itemprop="name">Accueil</span></a>
+      <meta itemprop="position" content="1">
+    </li>
+    <% list.forEach(function (c, i) { %>
+      <li class="sep" aria-hidden="true"><%- icon('chevron-right', 'xs') %></li>
+      <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+        <% if (c.href && i < list.length - 1) { %>
+          <a itemprop="item" href="<%= c.href %>"><span itemprop="name"><%= c.label %></span></a>
+        <% } else { %>
+          <span itemprop="name" aria-current="page"><%= c.label %></span>
+        <% } %>
+        <meta itemprop="position" content="<%= i + 2 %>">
+      </li>
+    <% }); %>
+  </ol>
+</nav>
+<% } %>

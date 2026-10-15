@@ -1,0 +1,186 @@
+<%
+/**
+ * Sauvegardes et restauration.
+ *
+ * Deux niveaux : la base seule (`VACUUM INTO`, fichier SQLite vérifié) et une
+ * archive complète (base + médias). Chaque sauvegarde est contrôlée par
+ * `PRAGMA integrity_check` avant d'être proposée.
+ *
+ * La restauration est volontairement une procédure hors ligne (script), jamais
+ * un bouton web : remplacer la base en production depuis un navigateur serait
+ * une opération destructrice sans retour possible.
+ */
+const list = Array.isArray(backups) ? backups : [];
+const integ = integrity || { ok: false, integrity: 'inconnue' };
+const c = counts || {};
+
+function fmtBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} o`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1).replace('.', ',')} Ko`;
+  if (v < 1024 * 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1).replace('.', ',')} Mo`;
+  return `${(v / 1024 / 1024 / 1024).toFixed(2).replace('.', ',')} Go`;
+}
+const writable = can('settings.write') && Boolean(adminUser) && adminUser.role === 'admin';
+const totalBytes = list.reduce((s, b) => s + Number(b.bytes || 0), 0);
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Sauvegardes</h1>
+    <p class="sub">
+      <%= list.length %> sauvegarde(s) disponible(s)<% if (totalBytes) { %> · <%= fmtBytes(totalBytes) %> au total<% } %> ·
+      conservation : <%= retention || 14 %> fichiers
+    </p>
+  </div>
+  <a class="btn btn--sm btn--quiet" href="/admin/etat"><%- icon('gauge', 'sm') %> État technique</a>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi kpi--<%= integ.ok ? 'success' : 'danger' %>">
+    <div class="k-label">Intégrité de la base</div>
+    <div class="k-value"><%= integ.ok ? 'OK' : 'À vérifier' %></div>
+    <div class="k-sub"><code>PRAGMA integrity_check</code> : <%= integ.integrity %></div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">Taille de la base</div>
+    <div class="k-value"><%= fmtBytes(dbSize) %></div>
+    <div class="k-sub mono tiny" style="word-break:break-all"><%= dbPath %></div>
+  </div>
+  <div class="kpi kpi--accent">
+    <div class="k-label">Contenu</div>
+    <div class="k-value"><%= (c.products || 0) + (c.orders || 0) %></div>
+    <div class="k-sub">
+      <%= c.products || 0 %> article(s) · <%= c.orders || 0 %> commande(s)<br>
+      <%= c.customers || 0 %> client(s) · <%= c.media || 0 %> média(s)
+    </div>
+  </div>
+  <div class="kpi kpi--<%= autoEnabled ? 'success' : 'warn' %>">
+    <div class="k-label">Sauvegarde automatique</div>
+    <div class="k-value"><%= autoEnabled ? 'Activée' : 'Désactivée' %></div>
+    <div class="k-sub">
+      <% if (autoEnabled) { %>Activable dans Réglages › Commerce.<% } else { %>
+        <a href="/admin/reglages?onglet=commerce">Activer dans Réglages › Commerce</a>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<div class="split split--2">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Sauvegardes disponibles</h2>
+      <span class="hint">Les plus récentes d’abord</span>
+    </div>
+    <div class="panel-body panel-body--flush">
+      <% if (!list.length) { %>
+        <p class="empty-row">
+          Aucune sauvegarde pour l’instant. Créez-en une ci-contre, ou exécutez
+          <code>npm run backup</code> sur le serveur.
+        </p>
+      <% } else { %>
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Liste des sauvegardes</caption>
+            <thead>
+              <tr>
+                <th scope="col">Fichier</th>
+                <th scope="col">Type</th>
+                <th scope="col" class="num">Taille</th>
+                <th scope="col">Date</th>
+                <th scope="col" class="right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% list.forEach(function (b) { %>
+                <% const isArchive = /\.tar\.gz$/i.test(b.name) || /\.zip$/i.test(b.name); %>
+                <tr>
+                  <td class="mono tiny" style="word-break:break-all"><%= b.name %></td>
+                  <td><span class="pill pill--<%= isArchive ? 'brand' : 'info' %>"><%= isArchive ? 'Complète' : 'Base seule' %></span></td>
+                  <td class="num mono tiny"><%= fmtBytes(b.bytes) %></td>
+                  <td class="tiny"><%= dates.formatDateTime(b.modifiedAt) %></td>
+                  <td class="right">
+                    <% if (writable) { %>
+                      <a class="btn btn--sm btn--quiet" href="/admin/sauvegardes/telecharger/<%= encodeURIComponent(b.name) %>">
+                        <%- icon('download', 'xs') %> Télécharger
+                      </a>
+                    <% } else { %>
+                      <span class="tiny muted">réservé à l’administrateur</span>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+    <% if (writable) { %>
+      <div class="panel-foot">
+        <form method="post" action="/admin/sauvegardes/creer" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="btn btn--sm" type="submit"><%- icon('database', 'sm') %> Sauvegarder la base</button>
+          <button class="btn btn--sm btn--accent" type="submit" name="complet" value="1" data-confirm="Créer une archive complète (base + images) ? L'opération peut prendre quelques secondes.">
+            <%- icon('layers', 'sm') %> Sauvegarde complète (base + médias)
+          </button>
+          <span class="tiny muted">Les fichiers au-delà de <%= retention || 14 %> sauvegardes sont purgés automatiquement.</span>
+        </form>
+      </div>
+    <% } %>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:var(--space-4)">
+      <div class="panel-head"><h2>Procédure de restauration</h2><span class="hint">Hors ligne, par sécurité</span></div>
+      <div class="panel-body">
+        <p class="tiny" style="margin-top:0">
+          Restaurer remplace la base en cours : l’opération est <strong>délibérément absente de
+          l’interface web</strong>. Elle s’exécute sur le serveur, application arrêtée.
+        </p>
+        <ol class="tight tiny">
+          <li>Arrêter l’application (<kbd>Ctrl</kbd>+<kbd>C</kbd> ou arrêt du service).</li>
+          <li>Copier la sauvegarde choisie sur le serveur.</li>
+          <li>Vérifier son intégrité puis restaurer :
+            <div class="code-block" style="margin-top:6px">node scripts/restore.js data/backups/&lt;fichier&gt;.sqlite</div>
+          </li>
+          <li>Pour une archive complète, extraire aussi le dossier des médias :
+            <div class="code-block" style="margin-top:6px">tar -xzf data/backups/&lt;fichier&gt;.tar.gz -C data/</div>
+          </li>
+          <li>Redémarrer l’application et contrôler <a href="/admin/etat">l’état technique</a>.</li>
+        </ol>
+        <div class="alert alert--warn" style="margin-top:var(--space-3)">
+          <%- icon('alert', 'sm') %>
+          <span>
+            Conservez toujours une copie des sauvegardes <strong>hors du serveur</strong>
+            (disque externe ou stockage choisi par l’établissement). Une sauvegarde laissée
+            sur la même machine ne protège ni du vol ni d’une panne de disque.
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Exports de données</h2></div>
+      <div class="panel-body">
+        <p class="tiny muted" style="margin-top:0">Exports lisibles, indépendants des sauvegardes binaires :</p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <% if (writable) { %>
+            <a class="btn btn--sm btn--quiet btn--block" href="/admin/sauvegardes/export-json">
+              <%- icon('file', 'sm') %> Export JSON complet (réglages, catalogue, commandes)
+            </a>
+          <% } %>
+          <a class="btn btn--sm btn--quiet btn--block" href="/admin/export/catalogue.xlsx"><%- icon('download', 'sm') %> Catalogue (Excel)</a>
+          <a class="btn btn--sm btn--quiet btn--block" href="/admin/exports/commandes.csv"><%- icon('download', 'sm') %> Commandes (CSV)</a>
+          <a class="btn btn--sm btn--quiet btn--block" href="/admin/exports/ventes.csv"><%- icon('download', 'sm') %> Ventes au comptoir (CSV)</a>
+          <a class="btn btn--sm btn--quiet btn--block" href="/admin/exports/clients.csv"><%- icon('download', 'sm') %> Clients (CSV)</a>
+        </div>
+        <p class="field-help" style="margin-bottom:0">
+          Dossier de stockage du serveur : <code class="mono"><%= mediaDir %></code> (images).
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

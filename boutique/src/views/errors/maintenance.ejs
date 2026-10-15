@@ -1,0 +1,36 @@
+<%
+/** Maintenance annoncée — document autonome, rendu sans gabarit. */
+const text = typeof message !== 'undefined' && message ? message : 'La boutique est en cours de mise à jour.';
+%>
+<!doctype html>
+<html lang="fr">
+<head>
+<%- include('/partials/head', { title: 'Boutique momentanément indisponible', noindex: true, canonical: null }) %>
+</head>
+<body data-density="<%= theme.density %>">
+<main id="contenu" class="container" style="padding:var(--space-8) var(--space-4)">
+  <div style="max-width:560px;margin:0 auto;text-align:center">
+    <span class="brand-mark" style="width:64px;height:64px;font-size:1.3rem;margin:0 auto var(--space-4)">
+      <% if (store.logoKey) { %>
+        <img src="<%= mediaUrl(store.logoKey, 'thumb') %>" alt="" width="64" height="64">
+      <% } else { %>
+        <abbr title="<%= store.name %>" style="text-decoration:none"><%= (store.shortName || 'ETS').split(' ').filter(Boolean).slice(-2).map(w => w[0]).join('') %></abbr>
+      <% } %>
+    </span>
+    <h1><%= store.name %></h1>
+    <p class="subtle"><%= text %></p>
+    <div class="callout" style="text-align:left;margin:var(--space-5) 0">
+      <strong>Besoin d’un article maintenant ?</strong>
+      <ul style="margin:8px 0 0;padding-left:18px">
+        <% if (store.phoneDisplay) { %><li>Appelez le <a href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a></li><% } %>
+        <% if (store.whatsappEnabled && store.whatsapp) { %>
+          <li><a href="https://wa.me/<%= String(store.whatsapp.value).replace(/\D/g, '') %>" target="_blank" rel="noopener noreferrer">Écrivez-nous sur WhatsApp</a></li>
+        <% } %>
+        <li>Retrait en boutique à <%= store.city %><% if (store.hoursStatus === 'confirmed' && store.hours.length) { %> — <%= store.hours.map(h => `${h.day} ${h.closed ? 'fermé' : `${h.open}–${h.close}`}`).join(', ') %><% } %></li>
+      </ul>
+    </div>
+    <p class="tiny muted">Les commandes déjà enregistrées restent valables et sont traitées normalement.</p>
+  </div>
+</main>
+</body>
+</html>

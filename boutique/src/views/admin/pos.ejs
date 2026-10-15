@@ -1,0 +1,277 @@
+<%
+/**
+ * Caisse : enregistrement d'une vente réalisée en boutique.
+ * Les prix sont relus du catalogue à chaque calcul, une correction de prix est
+ * possible mais tracée. Le stock est décrémenté immédiatement.
+ */
+const list = sales || [];
+const selected = sale || null;
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Vente en boutique</h1>
+    <p class="sub">
+      Aujourd’hui : <%= todayTotals.count %> vente(s) · <strong><%= money.format(todayTotals.total) %></strong>
+      <% if (todayTotals.discount) { %> · remises <%= money.format(todayTotals.discount) %><% } %>
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/exports/ventes.csv"><%- icon('download', 'sm') %> Export CSV</a>
+    <a class="btn btn--ghost" href="/admin/stock"><%- icon('layers', 'sm') %> Stock</a>
+  </div>
+</div>
+
+<div class="split split--2">
+  <!-- =============== Nouvelle vente =============== -->
+  <div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Nouvelle vente</h2>
+        <span class="hint">Les totaux sont recalculés par le serveur à chaque saisie</span>
+      </div>
+      <div class="panel-body">
+        <form method="post" action="/admin/caisse" data-pos-form id="form-caisse">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+          <div class="field pos-search">
+            <label for="pos-search">Rechercher un article</label>
+            <input id="pos-search" type="search" data-pos-search autocomplete="off"
+                   placeholder="Nom, référence ou code-barres (2 caractères minimum)" aria-describedby="pos-search-help">
+            <div class="pos-results" data-pos-results hidden role="listbox" aria-label="Résultats"></div>
+            <span id="pos-search-help" class="field-help">
+              Cliquez sur un article pour l’ajouter. Sans JavaScript, saisissez directement l’identifiant
+              et la quantité dans le tableau ci-dessous.
+            </span>
+          </div>
+
+          <div class="table-wrap" style="margin-bottom:var(--space-3)">
+            <table class="data compact pos-table">
+              <caption class="visually-hidden">Articles de la vente</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Article</th>
+                  <th scope="col" class="num" style="width:80px">Qté</th>
+                  <th scope="col" class="num" style="width:120px">Prix unitaire</th>
+                  <th scope="col" style="width:44px"></th>
+                </tr>
+              </thead>
+              <tbody data-pos-lines>
+                <tr data-pos-line>
+                  <td>
+                    <span data-pos-name class="tiny muted">Aucun article — utilisez la recherche ci-dessus</span>
+                    <input type="hidden" name="product_id" data-pos-field="product">
+                    <input type="hidden" name="variant_id" data-pos-field="variant">
+                    <input type="hidden" name="sku" data-pos-field="sku">
+                    <span class="tiny muted" data-pos-catalog-price></span>
+                  </td>
+                  <td><input type="number" name="qty" data-pos-field="qty" min="1" step="1" inputmode="numeric" value="1" style="width:70px;text-align:right"></td>
+                  <td><input type="number" name="unit_price" data-pos-field="price" min="0" step="1" inputmode="numeric" placeholder="catalogue" style="width:110px;text-align:right"></td>
+                  <td><button class="btn btn--sm btn--quiet" type="button" data-pos-remove title="Retirer"><%- icon('trash', 'xs') %><span class="visually-hidden">Retirer</span></button></td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr><td colspan="3" class="right">Sous-total</td><td class="num"><strong data-pos-subtotal>0 FCFA</strong></td></tr>
+                <tr hidden><td colspan="3" class="right">Remise</td><td class="num" data-pos-discount></td></tr>
+                <tr><td colspan="3" class="right"><strong>Total</strong></td><td class="num"><strong class="price" data-pos-total>0 FCFA</strong></td></tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <template data-pos-line-template>
+            <tr data-pos-line>
+              <td>
+                <span data-pos-name style="font-weight:600"></span>
+                <input type="hidden" name="product_id" data-pos-field="product">
+                <input type="hidden" name="variant_id" data-pos-field="variant">
+                <input type="hidden" name="sku" data-pos-field="sku">
+                <span class="tiny muted" data-pos-catalog-price></span>
+              </td>
+              <td><input type="number" name="qty" data-pos-field="qty" min="1" step="1" inputmode="numeric" value="1" style="width:70px;text-align:right"></td>
+              <td><input type="number" name="unit_price" data-pos-field="price" min="0" step="1" inputmode="numeric" placeholder="catalogue" style="width:110px;text-align:right"></td>
+              <td><button class="btn btn--sm btn--quiet" type="button" data-pos-remove title="Retirer"><%- icon('trash', 'xs') %><span class="visually-hidden">Retirer</span></button></td>
+            </tr>
+          </template>
+
+          <div data-pos-problems></div>
+
+          <div class="form-grid form-grid--3">
+            <div class="field">
+              <label for="discount">Remise (FCFA)</label>
+              <input id="discount" name="discount" type="number" min="0" step="1" inputmode="numeric" value="0"
+                     aria-describedby="discount-help">
+              <span id="discount-help" class="field-help">Une remise est enregistrée et tracée (geste commercial).</span>
+            </div>
+            <div class="field">
+              <label for="method_code">Moyen de paiement</label>
+              <select id="method_code" name="method_code">
+                <% methods.forEach(function (m) { %>
+                  <option value="<%= m.code %>"><%= m.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="field">
+              <label for="amount_paid">Montant reçu (FCFA)</label>
+              <input id="amount_paid" name="amount_paid" type="number" min="0" step="1" inputmode="numeric" placeholder="Total si vide"
+                     aria-describedby="paid-help">
+              <span id="paid-help" class="field-help">Laissez vide si le montant exact est reçu ; le rendu est calculé.</span>
+            </div>
+            <div class="field">
+              <label for="customer_name">Client (facultatif)</label>
+              <input id="customer_name" name="customer_name" type="text" maxlength="160" placeholder="Nom">
+            </div>
+            <div class="field">
+              <label for="customer_phone">Téléphone client</label>
+              <input id="customer_phone" name="customer_phone" type="tel" inputmode="tel" maxlength="30" placeholder="07 00 00 00 00">
+            </div>
+            <div class="field">
+              <label for="pos-note">Note</label>
+              <input id="pos-note" name="note" type="text" maxlength="300" placeholder="Ex. : facture demandée">
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn--lg" type="submit"><%- icon('check', 'sm') %> Encaisser <span data-pos-count>0</span> article(s)</button>
+            <button class="btn btn--quiet" type="reset"><%- icon('refresh', 'sm') %> Vider</button>
+          </div>
+
+          <p class="tiny muted" style="margin-top:var(--space-3)">
+            La vente est enregistrée immédiatement et le stock est décrémenté (mouvement « vente boutique »).
+            Si le stock est insuffisant, la vente est refusée : corrigez la quantité ou forcez l’opération
+            uniquement si vous êtes administrateur et que l’écart est justifié.
+          </p>
+
+          <% if (adminUser.role === 'admin') { %>
+            <label class="checkbox">
+              <input type="checkbox" name="forcer_stock" value="1">
+              <span><strong>Autoriser un stock négatif pour cette vente</strong>
+                <span class="tiny muted" style="display:block">À utiliser pour régulariser un écart d’inventaire. L’opération est journalisée.</span>
+              </span>
+            </label>
+          <% } %>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============== Suivi =============== -->
+  <div>
+    <% if (selected) { %>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Vente <%= selected.reference %></h2>
+          <a class="btn btn--sm btn--quiet" href="/admin/caisse/<%= selected.id %>/impression" target="_blank" rel="noopener"><%- icon('print', 'sm') %> Ticket</a>
+        </div>
+        <div class="panel-body">
+          <dl class="kv" style="margin-bottom:var(--space-3)">
+            <dt>Date</dt><dd><%= dates.formatDateTime(selected.created_at) %></dd>
+            <dt>Vendeur</dt><dd><%= selected.user ? (selected.user.full_name || selected.user.email) : '—' %></dd>
+            <dt>Client</dt><dd><%= selected.customer_name || '—' %><% if (selected.customer_phone) { %> · <%= formatPhone(selected.customer_phone) %><% } %></dd>
+            <dt>Moyen</dt><dd><%= selected.method ? selected.method.name : selected.method_code %></dd>
+            <dt>Total</dt><dd><strong><%= money.format(selected.total) %></strong></dd>
+            <% if (selected.discount) { %><dt>Remise</dt><dd><%= money.format(selected.discount) %></dd><% } %>
+            <dt>Reçu</dt><dd><%= money.format(selected.amount_paid) %></dd>
+            <% if (selected.change_due) { %><dt>Rendu</dt><dd><%= money.format(selected.change_due) %></dd><% } %>
+            <dt>Statut</dt><dd><span class="pill pill--<%= selected.status === 'done' ? 'success' : 'danger' %>"><%= selected.status %></span></dd>
+          </dl>
+
+          <div class="table-wrap">
+            <table class="data compact">
+              <caption class="visually-hidden">Articles de la vente <%= selected.reference %></caption>
+              <thead><tr><th scope="col">Article</th><th scope="col" class="num">Qté</th><th scope="col" class="num">P.U.</th><th scope="col" class="num">Total</th></tr></thead>
+              <tbody>
+                <% selected.items.forEach(function (it) { %>
+                  <tr>
+                    <td><%= it.name %><% if (it.options_label) { %> <span class="tiny muted">(<%= it.options_label %>)</span><% } %><span class="tiny muted mono" style="display:block"><%= it.sku %></span></td>
+                    <td class="num"><%= it.qty %></td>
+                    <td class="num"><%= money.format(it.unit_price) %></td>
+                    <td class="num"><%= money.format(it.line_total) %></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+
+          <% if (canCancel && selected.status === 'done') { %>
+            <form method="post" action="/admin/caisse/<%= selected.id %>/annuler" style="margin-top:var(--space-3)"
+                  data-confirm="Annuler la vente <%= selected.reference %> et restituer le stock ?">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <div class="field">
+                <label for="cancel-reason">Motif</label>
+                <input id="cancel-reason" name="reason" type="text" maxlength="200" placeholder="Ex. : erreur de saisie">
+              </div>
+              <label class="checkbox">
+                <input type="checkbox" name="restock" value="1" checked>
+                <span>Remettre les articles en stock</span>
+              </label>
+              <button class="btn btn--danger btn--sm" type="submit"><%- icon('refresh', 'sm') %> Annuler la vente</button>
+            </form>
+          <% } %>
+        </div>
+      </div>
+    <% } %>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Ventes récentes</h2><span class="hint"><%= totals.count %> sur la période</span></div>
+      <div class="panel-body panel-body--flush">
+        <form method="get" action="/admin/caisse" class="inline-form" style="padding:var(--space-3) var(--space-4) 0">
+          <div class="field" style="flex:2 1 160px;margin-bottom:var(--space-3)">
+            <label for="fq">Recherche</label>
+            <input id="fq" name="q" type="search" value="<%= req.query.q || '' %>" placeholder="Référence, client…">
+          </div>
+          <div class="field" style="flex:1 1 140px;margin-bottom:var(--space-3)">
+            <label for="du">Du</label>
+            <input id="du" name="du" type="date" value="<%= req.query.du || '' %>">
+          </div>
+          <div class="field" style="flex:1 1 140px;margin-bottom:var(--space-3)">
+            <label for="au">Au</label>
+            <input id="au" name="au" type="date" value="<%= req.query.au || '' %>">
+          </div>
+          <button class="btn btn--sm" type="submit" style="margin-bottom:var(--space-3)"><%- icon('filter', 'sm') %> Filtrer</button>
+        </form>
+
+        <% if (!list.length) { %>
+          <p class="empty-row">Aucune vente enregistrée sur cette période.</p>
+        <% } else { %>
+          <div class="scroll-x">
+            <table class="data compact">
+              <caption class="visually-hidden">Ventes au comptoir</caption>
+              <thead><tr><th scope="col">Référence</th><th scope="col">Date</th><th scope="col">Client</th><th scope="col">Vendeur</th><th scope="col" class="num">Total</th><th scope="col"></th></tr></thead>
+              <tbody>
+                <% list.forEach(function (s) { %>
+                  <tr>
+                    <td class="mono"><%= s.reference %></td>
+                    <td class="tiny"><%= dates.formatDateTime(s.created_at) %></td>
+                    <td class="tiny"><%= s.customer_name || '—' %></td>
+                    <td class="tiny"><%= s.user_name || '—' %></td>
+                    <td class="num"><strong><%= money.format(s.total) %></strong><% if (s.status !== 'done') { %> <span class="pill pill--danger"><%= s.status %></span><% } %></td>
+                    <td class="right"><a class="btn btn--sm btn--quiet" href="<%= qs(req, { vente: s.id }) %>">Voir</a></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <div style="padding:var(--space-3) var(--space-4)"><%- include('/partials/pagination', { pagination }) %></div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Totaux de la période</h2></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>Ventes</dt><dd><%= totals.count %></dd>
+          <dt>Chiffre d’affaires</dt><dd><strong><%= money.format(totals.total) %></strong></dd>
+          <dt>Remises accordées</dt><dd><%= money.format(totals.discount) %></dd>
+        </dl>
+        <p class="tiny muted" style="margin-top:var(--space-3)">
+          Ces totaux concernent uniquement les ventes au comptoir. Les commandes en ligne encaissées sont
+          comptées séparément dans les <a href="/admin/statistiques">statistiques</a>, pour éviter tout double comptage.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

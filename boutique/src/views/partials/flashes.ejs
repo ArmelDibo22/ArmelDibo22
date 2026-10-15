@@ -1,0 +1,21 @@
+<%
+/** Messages flash : succès, information, avertissement, erreur. */
+const toneIcon = { success: 'check-circle', error: 'alert', warn: 'alert', info: 'info' };
+const toneClass = { success: 'success', error: 'error', warn: 'warn', info: 'info' };
+%>
+<% if (flashes && flashes.length) { %>
+<div class="flashes" aria-live="polite" aria-atomic="false">
+  <% flashes.forEach(function (f) { %>
+    <div class="alert alert--<%= toneClass[f.type] || 'info' %>" role="status">
+      <%- icon(toneIcon[f.type] || 'info', 'sm') %>
+      <span style="flex:1 1 auto"><%= f.message %></span>
+      <button type="button" class="link-btn" data-dismiss aria-label="Fermer le message"><%- icon('close', 'sm') %></button>
+    </div>
+  <% }); %>
+</div>
+<% } %>
+<% if (typeof cartError !== 'undefined' && cartError) { %>
+<div class="container" style="padding-top:var(--space-4)">
+  <div class="alert alert--warn"><%- icon('alert', 'sm') %><span>Panier temporairement indisponible : <%= cartError %></span></div>
+</div>
+<% } %>

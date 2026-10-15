@@ -1,0 +1,97 @@
+<%
+/** Résultat d'une simulation de paiement : réponse réelle du circuit de webhook. */
+const o = order;
+const actionLabels = {
+  succes: 'Paiement réussi',
+  echec: 'Paiement échoué',
+  annulation: 'Annulation par le client',
+};
+const paid = ['paid', 'partially_refunded', 'refunded'].includes(o.payment_status);
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4);max-width:760px">
+  <div class="alert alert--warn">
+    <%- icon('alert', 'md') %>
+    <span><strong>Démonstration</strong> — aucun mouvement d’argent réel. Les réponses ci-dessous proviennent du vrai circuit de notification de la boutique.</span>
+  </div>
+
+  <h1><%= actionLabels[action] || 'Résultat de la simulation' %></h1>
+  <p class="muted">
+    Commande <span class="ref-badge"><%= o.reference %></span> · montant notifié
+    <strong><%= money.format(amount) %> <%= currency %></strong>
+    (total attendu : <strong><%= money.format(o.total) %> <%= o.currency %></strong>).
+  </p>
+
+  <div class="tracking-card" style="margin-top:var(--space-4)">
+    <h2 style="font-size:1.05rem">Réponses du serveur</h2>
+    <div class="table-wrap" style="border:0">
+      <table class="data">
+        <caption class="visually-hidden">Notifications envoyées et réponses reçues</caption>
+        <thead><tr><th scope="col">Envoi</th><th scope="col">HTTP</th><th scope="col">Réponse</th><th scope="col">Interprétation</th></tr></thead>
+        <tbody>
+          <% results.forEach(function (r, i) { %>
+            <%
+              const body = r.body && typeof r.body === 'object' ? r.body : { raw: String(r.body || '') };
+              const verdict =
+                r.status === 200 && body.duplicate ? 'Doublon ignoré (déjà traité)' :
+                r.status === 200 ? 'Notification acceptée et appliquée' :
+                r.status === 401 ? 'Signature refusée' :
+                r.status === 404 ? 'Commande inconnue du prestataire' :
+                r.status === 409 ? 'Conflit : état déjà atteint' :
+                r.status === 422 ? 'Rejet métier (montant, devise ou commande)' :
+                `Réponse ${r.status}`;
+            %>
+            <tr>
+              <td>#<%= i + 1 %></td>
+              <td><span class="pill pill--<%= r.status === 200 ? 'success' : (r.status >= 400 && r.status < 500 ? 'warn' : 'danger') %>"><%= r.status %></span></td>
+              <td class="mono tiny" style="max-width:320px;overflow:hidden;text-overflow:ellipsis"><%= JSON.stringify(body).slice(0, 220) %></td>
+              <td class="tiny"><%= verdict %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="split split--even" style="margin-top:var(--space-4)">
+    <div class="tracking-card">
+      <h2 style="font-size:1.05rem">État de la commande après simulation</h2>
+      <dl class="kv">
+        <dt>Commande</dt><dd><span class="pill pill--<%= statusTone('order', o.status) %>"><%= labels.order[o.status] || o.status %></span></dd>
+        <dt>Paiement</dt><dd><span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span></dd>
+        <dt>Livraison</dt><dd><span class="pill pill--<%= statusTone('delivery', o.delivery_status) %>"><%= labels.delivery[o.delivery_status] || o.delivery_status %></span></dd>
+        <dt>Réglé</dt><dd><%= money.format(o.amount_paid) %></dd>
+      </dl>
+      <% if (paid) { %>
+        <p class="tiny muted" style="margin-top:var(--space-3)">
+          Le paiement a été validé par le serveur après vérification de la signature, du montant,
+          de la devise et de la commande concernée.
+        </p>
+      <% } else { %>
+        <p class="tiny muted" style="margin-top:var(--space-3)">
+          Le paiement n’est pas validé : la commande reste dans son état précédent. Une capture d’écran ou un
+          simple message ne suffit jamais à considérer une commande comme réglée.
+        </p>
+      <% } %>
+    </div>
+
+    <div class="tracking-card">
+      <h2 style="font-size:1.05rem">Que tester ensuite ?</h2>
+      <ul style="font-size:.9rem;padding-left:18px;margin:0;color:var(--ink-2)">
+        <li>Renvoyer 3 notifications identiques : une seule doit être appliquée.</li>
+        <li>Notifier un montant inférieur : la boutique doit refuser (erreur de montant).</li>
+        <li>Notifier une devise différente : refus immédiat.</li>
+        <li>Notifier une référence inconnue : réponse « commande introuvable ».</li>
+        <li>Vérifier que le stock réservé est bien consommé après un paiement réussi.</li>
+      </ul>
+      <p style="margin-top:var(--space-3)">
+        <a class="btn btn--ghost btn--sm" href="/paiements/simuler/<%= o.reference %>">Revenir à la passerelle</a>
+      </p>
+    </div>
+  </div>
+
+  <div class="btn-row" style="margin-top:var(--space-5)">
+    <a class="btn" href="/commande/confirmation/<%= o.tracking_token %>">Voir la confirmation client</a>
+    <a class="btn btn--ghost" href="/suivi/<%= o.tracking_token %>">Suivi de commande</a>
+    <% if (admin) { %><a class="btn btn--quiet" href="/admin/commandes/<%= o.id %>">Ouvrir dans l’administration</a><% } %>
+  </div>
+</div>

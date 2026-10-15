@@ -1,0 +1,11 @@
+<%
+/**
+ * Gabarit d'administration utilisé pour les pages rendues via `renderPage`
+ * (essentiellement les erreurs : 404, 403, 500…). Les vues d'administration
+ * courantes composent elles-mêmes leur document avec les partials
+ * `/admin/partials/header` et `/admin/partials/footer`.
+ */
+%>
+<%- include('/admin/partials/header') %>
+<%- body %>
+<%- include('/admin/partials/footer') %>

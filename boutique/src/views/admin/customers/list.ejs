@@ -1,0 +1,91 @@
+<%
+/**
+ * Clients : consultation limitée aux permissions du rôle.
+ * Les comptes sont facultatifs : une commande peut exister sans fiche client.
+ */
+const list = items || [];
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Clients</h1>
+    <p class="sub"><%= pagination.total %> fiche(s) client — les commandes sans compte n’apparaissent pas ici</p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/exports/clients.csv"><%- icon('download', 'sm') %> Export CSV</a>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-body">
+    <form method="get" action="/admin/clients" class="inline-form">
+      <div class="field" style="flex:2 1 220px">
+        <label for="q">Recherche</label>
+        <input id="q" name="q" type="search" value="<%= q || '' %>" placeholder="Nom, téléphone ou e-mail">
+      </div>
+      <div class="field" style="flex:1 1 200px">
+        <label for="consentement">Consentement publicitaire</label>
+        <select id="consentement" name="consentement">
+          <option value="">Tous</option>
+          <option value="yes" <%= consented === 'yes' ? 'selected' : '' %>>Donné</option>
+          <option value="no" <%= consented === 'no' ? 'selected' : '' %>>Non donné / retiré</option>
+        </select>
+      </div>
+      <button class="btn" type="submit"><%- icon('search', 'sm') %> Chercher</button>
+      <a class="btn btn--quiet" href="/admin/clients">Réinitialiser</a>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Fiches clients</h2>
+    <span class="hint">Les données personnelles ne sont utilisées que pour les commandes</span>
+  </div>
+  <div class="panel-body panel-body--flush">
+    <% if (!list.length) { %>
+      <div class="empty-row">
+        <%- icon('users', 'xl') %>
+        <p style="margin:var(--space-3) 0"><strong>Aucun client</strong></p>
+        <p class="tiny muted" style="max-width:56ch;margin:0 auto">
+          Une fiche client est créée automatiquement lorsqu’une personne crée un compte,
+          ou lorsqu’une commande est passée avec des coordonnées déjà utilisées.
+        </p>
+      </div>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact">
+          <caption class="visually-hidden">Clients</caption>
+          <thead>
+            <tr><th scope="col">Nom</th><th scope="col">Contact</th><th scope="col">Ville</th><th scope="col" class="num">Commandes</th><th scope="col" class="num">Réglé</th><th scope="col">Publicité</th><th scope="col">Dernière activité</th><th scope="col" class="right"></th></tr>
+          </thead>
+          <tbody>
+            <% list.forEach(function (c) { %>
+              <tr>
+                <td>
+                  <a href="/admin/clients/<%= c.id %>" style="font-weight:600"><%= c.full_name || '(sans nom)' %></a>
+                  <% if (!c.password_hash) { %><span class="pill" style="margin-left:4px" title="Compte créé automatiquement lors d’une commande">sans mot de passe</span><% } %>
+                </td>
+                <td class="tiny">
+                  <% if (c.phone) { %><a href="tel:<%= String(c.phone).replace(/\D/g, '') %>"><%= formatPhone(c.phone) %></a><br><% } %>
+                  <% if (c.email) { %><%= c.email %><% } else { %><span class="muted">pas d’e-mail</span><% } %>
+                </td>
+                <td class="tiny"><%= c.city || '—' %></td>
+                <td class="num"><%= c.orders_count %></td>
+                <td class="num"><%= money.format(c.orders_amount) %></td>
+                <td><span class="pill pill--<%= c.marketing_consent ? 'success' : 'neutral' %>"><%= c.marketing_consent ? 'oui' : 'non' %></span></td>
+                <td class="tiny muted"><%= c.last_order_at ? dates.formatDate(c.last_order_at) : 'jamais' %></td>
+                <td class="right"><a class="btn btn--sm btn--quiet" href="/admin/clients/<%= c.id %>">Ouvrir</a></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/partials/pagination', { pagination }) %>
+
+<%- include('/admin/partials/footer') %>

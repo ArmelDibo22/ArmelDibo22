@@ -1,0 +1,178 @@
+<%
+/**
+ * Suivi du stock : alertes, ruptures, toutes les lignes, ajustements tracés.
+ * Chaque modification crée un mouvement horodaté et attribué.
+ */
+const views = [
+  { key: 'alertes', label: 'Alertes', hint: 'Sous le seuil défini' },
+  { key: 'ruptures', label: 'Ruptures', hint: 'Disponible ≤ 0' },
+  { key: 'tous', label: 'Toutes les lignes', hint: 'Produits et variantes' },
+];
+const reasonLabels = {
+  initial: 'Stock initial',
+  ajustement: 'Ajustement',
+  achat_fournisseur: 'Entrée fournisseur',
+  inventaire: 'Inventaire',
+  perte: 'Perte / casse',
+  retour: 'Retour client',
+  vente: 'Vente',
+  vente_boutique: 'Vente au comptoir',
+  commande: 'Commande',
+  annulation: 'Annulation',
+  import: 'Import',
+  reservation: 'Réservation',
+  liberation: 'Libération',
+  kit: 'Kit',
+};
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Stock</h1>
+    <p class="sub">
+      <%= lowStockCount %> ligne(s) sous le seuil d’alerte · disponible = en stock − réservé
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--ghost" href="/admin/stock/mouvements"><%- icon('list', 'sm') %> Historique des mouvements</a>
+    <a class="btn btn--quiet" href="/admin/caisse"><%- icon('store', 'sm') %> Caisse</a>
+  </div>
+</div>
+
+<div class="active-filters" style="margin-bottom:var(--space-4)">
+  <% views.forEach(function (vv) { %>
+    <a class="chip <%= view === vv.key ? 'is-active' : '' %>" href="<%= qs(req, { vue: vv.key, page: null }) %>" title="<%= vv.hint %>"><%= vv.label %></a>
+  <% }); %>
+</div>
+
+<div class="panel">
+  <div class="panel-body">
+    <form method="get" action="/admin/stock" class="inline-form">
+      <input type="hidden" name="vue" value="<%= view %>">
+      <div class="field" style="flex:2 1 240px">
+        <label for="q">Rechercher un article ou une référence</label>
+        <input id="q" name="q" type="search" value="<%= req.query.q || '' %>" placeholder="Nom, SKU…">
+      </div>
+      <button class="btn" type="submit"><%- icon('search', 'sm') %> Chercher</button>
+      <a class="btn btn--quiet" href="/admin/stock?vue=<%= view %>">Réinitialiser</a>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2><%= pagination.total %> ligne(s) de stock</h2>
+    <span class="hint">Le stock réservé correspond aux paniers et commandes en attente ; il est libéré automatiquement à expiration</span>
+  </div>
+  <div class="panel-body panel-body--flush">
+    <% if (!items.length) { %>
+      <div class="empty-row">
+        <%- icon('check-circle', 'xl') %>
+        <p style="margin:var(--space-3) 0"><strong>Aucune ligne à signaler</strong></p>
+        <p class="tiny muted">
+          <% if (view === 'alertes') { %>Aucun article n’est passé sous son seuil d’alerte.<% } %>
+          <% if (view === 'ruptures') { %>Aucune rupture de stock sur les articles suivis.<% } %>
+          <% if (view === 'tous') { %>Aucune ligne de stock : le suivi est désactivé sur les articles ou le catalogue est vide.<% } %>
+        </p>
+        <div class="btn-row" style="justify-content:center;margin-top:var(--space-3)">
+          <a class="btn" href="/admin/stock?vue=tous">Voir toutes les lignes</a>
+          <a class="btn btn--ghost" href="/admin/produits">Gérer les articles</a>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact">
+          <caption class="visually-hidden">Lignes de stock</caption>
+          <thead>
+            <tr>
+              <th scope="col">Article</th>
+              <th scope="col">Variante</th>
+              <th scope="col" class="num">En stock</th>
+              <th scope="col" class="num">Réservé</th>
+              <th scope="col" class="num">Disponible</th>
+              <th scope="col" class="num">Seuil</th>
+              <th scope="col">Ajuster</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% items.forEach(function (s) { %>
+              <tr>
+                <td>
+                  <a href="/admin/produits/<%= s.product_id %>" style="font-weight:600"><%= s.product_name %></a>
+                  <span class="tiny muted mono" style="display:block"><%= s.product_sku || '—' %></span>
+                  <span class="pill pill--<%= s.product_status === 'published' ? 'success' : 'warn' %>" style="margin-top:2px"><%= s.product_status %></span>
+                </td>
+                <td class="tiny">
+                  <% if (s.options) { %>
+                    <%= Object.entries(s.options).map(function (e) { return `${e[0]} : ${e[1]}`; }).join(' · ') %>
+                    <span class="muted mono" style="display:block"><%= s.variant_sku || '' %></span>
+                  <% } else { %>
+                    <span class="muted">—</span>
+                  <% } %>
+                </td>
+                <td class="num"><%= s.qty_on_hand %></td>
+                <td class="num"><%= s.qty_reserved %></td>
+                <td class="num">
+                  <span class="pill pill--<%= s.available <= 0 ? 'danger' : (s.low_stock_threshold > 0 && s.available <= s.low_stock_threshold ? 'warn' : 'success') %>">
+                    <%= s.available %>
+                  </span>
+                </td>
+                <td class="num tiny muted"><%= s.low_stock_threshold || '—' %></td>
+                <td>
+                  <% if (can('stock.write')) { %>
+                    <form method="post" action="/admin/stock/<%= s.id %>" class="inline-form" style="gap:6px">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <input type="hidden" name="retour" value="/admin/stock?vue=<%= view %>&q=<%= encodeURIComponent(req.query.q || '') %>">
+                      <div class="field" style="flex:0 0 92px;margin:0">
+                        <label class="visually-hidden" for="qty-<%= s.id %>">Nouvelle quantité</label>
+                        <input id="qty-<%= s.id %>" name="qty" type="number" min="0" step="1" inputmode="numeric" value="<%= s.qty_on_hand %>" style="min-height:36px;padding:6px 8px">
+                      </div>
+                      <div class="field" style="flex:0 0 150px;margin:0">
+                        <label class="visually-hidden" for="reason-<%= s.id %>">Motif</label>
+                        <select id="reason-<%= s.id %>" name="reason" style="min-height:36px;font-size:.85rem">
+                          <% ['inventaire', 'achat_fournisseur', 'ajustement', 'perte', 'retour'].forEach(function (r) { %>
+                            <option value="<%= r %>"><%= reasonLabels[r] %></option>
+                          <% }); %>
+                        </select>
+                      </div>
+                      <div class="field" style="flex:1 1 140px;margin:0">
+                        <label class="visually-hidden" for="note-<%= s.id %>">Note</label>
+                        <input id="note-<%= s.id %>" name="note" type="text" maxlength="300" placeholder="Note (facultatif)" style="min-height:36px;padding:6px 8px;font-size:.85rem">
+                      </div>
+                      <button class="btn btn--sm" type="submit" title="Enregistrer le nouveau stock"><%- icon('check', 'xs') %></button>
+                    </form>
+                    <span class="tiny muted">
+                      <% if (s.last_actor) { %>Dernière modification : <%= s.last_actor %><% } %> ·
+                      <a href="/admin/stock/mouvements?produit=<%= s.product_id %>">historique</a>
+                    </span>
+                  <% } else { %>
+                    <span class="tiny muted">Lecture seule</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/partials/pagination', { pagination }) %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Comment le stock évolue</h2></div>
+  <div class="panel-body">
+    <ul style="margin:0;padding-left:18px;font-size:.9rem;color:var(--ink-2)">
+      <li>Une commande en ligne <strong>réserve</strong> le stock dès l’ajout au panier, pour une durée limitée : la réservation expire et le stock redevient disponible si la commande n’est pas finalisée.</li>
+      <li>Le stock est <strong>sorti définitivement</strong> à la confirmation du paiement (ou à l’encaissement en espèces).</li>
+      <li>Une vente au comptoir décrémente immédiatement le stock, avec un mouvement « vente boutique ».</li>
+      <li>Une annulation <strong>restitue</strong> le stock (mouvement « annulation »).</li>
+      <li>Un kit ne possède pas de stock propre : sa disponibilité est calculée à partir de ses composants.</li>
+      <li>Deux clients ne peuvent pas acheter la même dernière unité : la sortie de stock est protégée contre le dépassement.</li>
+    </ul>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

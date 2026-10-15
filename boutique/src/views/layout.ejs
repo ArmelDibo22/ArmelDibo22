@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<%- include('/partials/head') %>
+</head>
+<body data-density="<%= theme.density %>">
+<%- include('/partials/header') %>
+
+<main id="contenu">
+<%- body %>
+</main>
+
+<%- include('/partials/footer') %>
+<%- include('/partials/mobile-bar') %>
+<script src="/assets/js/app.js" defer></script>
+</body>
+</html>
