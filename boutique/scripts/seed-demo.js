@@ -29,10 +29,10 @@ if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
   process.exit(1);
 }
 process.env.DEMO = 'true';
-process.env.DATABASE_PATH = process.env.DEMO_DATABASE_PATH || 'data/demo.sqlite';
-process.env.MEDIA_DIR = process.env.DEMO_MEDIA_DIR || 'data/demo-media';
-process.env.IMPORT_DIR = 'data/demo-imports';
-process.env.BACKUP_DIR = 'data/demo-backups';
+// `src/config` résout lui-même les cibles de démonstration (DEMO_DATABASE_PATH,
+// DEMO_MEDIA_DIR, DEMO_IMPORT_DIR, DEMO_BACKUP_DIR) et IGNORE les variables de
+// stockage réelles dans ce mode. Les réécrire ici ferait croire au garde-fou
+// d'isolement que la démo pointe sur la base réelle.
 
 const config = require('../src/config');
 const db = require('../src/db');

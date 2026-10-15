@@ -58,6 +58,8 @@ const PERMISSIONS = {
     'imports.run', 'imports.export',
     'settings.read',
     'stats.read',
+    // Soumis à l'habilitation individuelle : `can()` vérifie `canConfirmCash`.
+    'cash.confirm',
   ]),
 };
 

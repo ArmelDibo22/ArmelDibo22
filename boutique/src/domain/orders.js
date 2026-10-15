@@ -90,7 +90,7 @@ class OrderError extends Error {
  * @param {Array<{productId:number, variantId?:number, qty:number}>} lines
  * @param {{zoneId?:number|string, discount?:number}} options
  */
-function computeTotals(lines, { zoneId = null, discount = 0 } = {}) {
+function computeTotals(lines, { zoneId = null, discount = 0, cartId = null } = {}) {
   const items = [];
   let subtotal = 0;
   let weightG = 0;
@@ -107,14 +107,17 @@ function computeTotals(lines, { zoneId = null, discount = 0 } = {}) {
       problems.push({ message: `Variante invalide pour « ${product.name} ».`, line });
       continue;
     }
-    const purchasability = products.purchasability(product, variant);
+    // Les unités déjà réservées par CE panier restent disponibles pour lui :
+    // sinon le dernier exemplaire en stock ne pourrait jamais être commandé.
+    const ownReservation = stock.reservedForCart(cartId, product.id, variant ? variant.id : null);
+    const purchasability = products.purchasability(product, variant, { ownReservation });
     if (!purchasability.ok) {
       problems.push({ message: `« ${product.name} » : ${purchasability.reasons[0]}`, line, product });
       continue;
     }
     const qty = Math.max(1, Math.min(Math.round(Number(line.qty) || 1), settings.get('commerce.max_qty_per_line')));
     const price = products.priceOf(product, variant);
-    const availability = products.availabilityOf(product, variant);
+    const availability = products.availabilityOf(product, variant, { ownReservation });
     if (availability.status !== 'untracked' && qty > availability.available) {
       problems.push({
         message: `« ${product.name} » : ${availability.available} unité(s) disponible(s) pour ${qty} demandée(s).`,
@@ -256,7 +259,7 @@ function createOrder(input, { actorId = null, source = 'web' } = {}) {
   }
 
   // --- Lignes et totaux ------------------------------------------------------
-  const totals = computeTotals(input.lines, { zoneId: zone.id });
+  const totals = computeTotals(input.lines, { zoneId: zone.id, cartId: input.cartId || null });
   if (!totals.items.length) {
     throw new OrderError(
       totals.problems[0]?.message || 'Votre panier est vide ou contient des articles indisponibles.',

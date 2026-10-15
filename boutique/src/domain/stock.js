@@ -239,6 +239,51 @@ function kitComponents(kitProductId) {
   );
 }
 
+/**
+ * Quantité déjà réservée PAR UN PANIER donné pour une ligne de commande.
+ *
+ * Le tunnel de vente ne doit pas compter la réservation du client contre
+ * lui-même : sans ce correctif, le dernier exemplaire en stock ne peut jamais
+ * être commandé (le panier le réserve, puis la commande le trouve indisponible).
+ * Pour un kit, les réservations portent sur les composants : on retrouve le
+ * nombre de lots réservés en prenant le minimum des rapports.
+ */
+function reservedForCart(cartId, productId, variantId = null) {
+  if (!cartId) return 0;
+  const product = db.get('SELECT is_kit, has_variants FROM products WHERE id = ?', [Number(productId)]);
+  if (!product) return 0;
+
+  if (product.is_kit) {
+    const components = kitComponents(Number(productId));
+    if (!components.length) return 0;
+    let units = Infinity;
+    for (const c of components) {
+      if (!c.track_stock) continue;
+      const row = db.get(
+        `SELECT COALESCE(SUM(qty), 0) AS n FROM reservations
+          WHERE cart_id = ? AND status = 'active' AND stock_item_id = ?`,
+        [Number(cartId), c.stock_item_id]
+      );
+      units = Math.min(units, Math.floor(Number(row?.n || 0) / Math.max(1, Number(c.quantity) || 1)));
+    }
+    return Number.isFinite(units) ? Math.max(0, units) : 0;
+  }
+
+  const items = (!variantId && product.has_variants)
+    ? db.all('SELECT id FROM stock_items WHERE product_id = ?', [Number(productId)])
+    : [itemFor(Number(productId), variantId ? Number(variantId) : null)].filter(Boolean);
+  let total = 0;
+  for (const item of items) {
+    const row = db.get(
+      `SELECT COALESCE(SUM(qty), 0) AS n FROM reservations
+        WHERE cart_id = ? AND status = 'active' AND stock_item_id = ?`,
+      [Number(cartId), item.id]
+    );
+    total += Number(row?.n || 0);
+  }
+  return total;
+}
+
 /** Quantité disponible d'un kit = minimum des rapports composants. */
 function kitAvailable(kitProductId) {
   const components = kitComponents(kitProductId);
@@ -265,11 +310,25 @@ function saveKitComponents(kitProductId, components) {
       [kitProductId, productId, variantId, qty]
     );
   }
-  // Le stock d'un kit est dérivé : on désactive le suivi propre.
-  db.run('UPDATE products SET is_kit = ?, track_stock = 0 WHERE id = ?', [
-    (components || []).length ? 1 : 0,
-    kitProductId,
-  ]);
+  // Le stock d'un kit est dérivé de ses composants : on désactive alors le suivi
+  // propre. En revanche, un article SIMPLE ne doit jamais perdre son suivi de
+  // stock : le formulaire produit transmet toujours une liste de composants
+  // (vide pour un article ordinaire), et la vider ne change rien à sa nature.
+  const before = db.get('SELECT is_kit FROM products WHERE id = ?', [kitProductId]);
+  const hasComponents = (components || []).length > 0;
+  if (hasComponents) {
+    db.run('UPDATE products SET is_kit = 1, track_stock = 0, updated_at = ? WHERE id = ?', [
+      dates.nowIso(), kitProductId,
+    ]);
+  } else if (before && before.is_kit) {
+    // Un kit vidé de ses composants redevient un article simple : il reprend son
+    // propre suivi de stock, sinon il resterait invendable et non réservable.
+    db.run('UPDATE products SET is_kit = 0, track_stock = 1, updated_at = ? WHERE id = ?', [
+      dates.nowIso(), kitProductId,
+    ]);
+  } else {
+    db.run('UPDATE products SET is_kit = 0, updated_at = ? WHERE id = ?', [dates.nowIso(), kitProductId]);
+  }
   syncItems(kitProductId);
 }
 
@@ -509,16 +568,23 @@ function releaseExpired({ userId = null } = {}) {
       });
       syncProductQty(db.get('SELECT product_id FROM stock_items WHERE id = ?', [r.stock_item_id])?.product_id);
     }
-    // Une commande `pending` dont la réservation expire avant paiement est annulée :
-    // le stock redevient vendable et le client peut recommander.
-    // Une commande `quote_required` n'est PAS annulée : elle attend l'accord du client
-    // sur le montant de la livraison (délai long, volontairement). Le stock est libéré,
-    // et il sera réservé à nouveau au moment où le devis est accepté.
+    // Une commande `pending` réglée en ligne dont la réservation expire avant
+    // encaissement est annulée : la session de paiement est morte, le stock
+    // redevient vendable et le client peut recommander.
+    // Exception volontaire : une commande à payer à la réception (espèces) reste
+    // `pending` — elle demeure encaissable au comptoir, seul son stock est libéré.
+    // Une commande `quote_required` n'est PAS annulée non plus : elle attend l'accord
+    // du client sur le montant de la livraison (délai long, volontairement). Le stock
+    // est libéré, et il sera réservé à nouveau au moment où le devis est accepté.
     const orderIds = [...new Set(rows.map((r) => r.order_id).filter(Boolean))];
     for (const oid of orderIds) {
       const order = db.get('SELECT * FROM orders WHERE id = ?', [oid]);
       if (!order) continue;
-      if (order.status === 'pending' && order.payment_status === 'unpaid') {
+      const method = order.payment_method_code
+        ? db.get('SELECT kind FROM payment_methods WHERE code = ?', [order.payment_method_code])
+        : null;
+      const isCash = method?.kind === 'cash';
+      if (order.status === 'pending' && order.payment_status !== 'paid' && !isCash) {
         db.run("UPDATE orders SET status = 'cancelled', cancel_reason = ?, cancelled_at = ?, updated_at = ? WHERE id = ?", [
           'Réservation de stock expirée avant confirmation du paiement.',
           now, now, oid,
@@ -554,6 +620,7 @@ function reserveForOrder(orderId, minutes = config.commerce.orderReservationMinu
 }
 
 module.exports = {
+  reservedForCart,
   StockError,
   itemFor,
   itemsForProduct,

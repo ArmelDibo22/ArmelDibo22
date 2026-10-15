@@ -809,6 +809,7 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .pill--danger { background: var(--danger-soft); border-color: #f0c4c0; color: var(--danger); }
 .pill--info { background: var(--info-soft); border-color: #c9dcf5; color: var(--info); }
 .pill--brand { background: var(--brand-soft); border-color: #c9d6ea; color: var(--brand); }
+.pill--neutral { background: var(--surface); border-color: var(--border); color: var(--ink-2); }
 
 /* --------------------------------------------------------------------------
    Contact

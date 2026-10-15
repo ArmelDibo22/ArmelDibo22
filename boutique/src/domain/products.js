@@ -123,11 +123,16 @@ function priceRange(product) {
   return { min: Number(row.min_price), max: Number(row.max_price), single: Number(row.min_price) === Number(row.max_price) };
 }
 
-function availabilityOf(product, variant = null) {
+/**
+ * @param {number} [options.ownReservation] unités déjà réservées par le panier du
+ *   client qui consulte : elles restent disponibles POUR LUI (tunnel de commande).
+ */
+function availabilityOf(product, variant = null, { ownReservation = 0 } = {}) {
   if (!product) return { status: 'unknown', available: 0, label: 'Indisponible' };
+  const own = Math.max(0, Number(ownReservation) || 0);
   if (product.is_kit) {
     const avail = stock.kitAvailable(product.id);
-    return describeAvailability(product, avail);
+    return describeAvailability(product, avail + own);
   }
   if (!product.track_stock) {
     return { status: 'untracked', available: Infinity, label: 'Disponible sur commande', untracked: true };
@@ -137,7 +142,7 @@ function availabilityOf(product, variant = null) {
   if (!variant && product.has_variants) {
     avail = stock.availableForProduct(product.id);
   }
-  return describeAvailability(product, avail);
+  return describeAvailability(product, avail + own);
 }
 
 function describeAvailability(product, avail) {
@@ -155,14 +160,14 @@ function describeAvailability(product, avail) {
  * l'exploitant et stock disponible. Aucune de ces conditions n'est contournable
  * côté client : le tunnel de commande revérifie tout au moment de la validation.
  */
-function purchasability(product, variant = null) {
+function purchasability(product, variant = null, { ownReservation = 0 } = {}) {
   const reasons = [];
   if (!product) return { ok: false, reasons: ['Produit introuvable'] };
   if (product.status !== 'published') reasons.push("L'article n'est pas publié.");
   const price = priceOf(product, variant);
   if (!(price.sale > 0)) reasons.push("Aucun prix n'est renseigné pour cet article.");
   if (!product.data_confirmed) reasons.push("Le prix et la disponibilité n'ont pas encore été confirmés par la boutique.");
-  const avail = availabilityOf(product, variant);
+  const avail = availabilityOf(product, variant, { ownReservation });
   if (avail.status === 'out') reasons.push('Article en rupture de stock.');
   if (product.is_kit && avail.status !== 'untracked' && avail.available <= 0) {
     reasons.push('Composants du kit indisponibles.');
@@ -609,12 +614,16 @@ function normalizeInput(input, { partial = false } = {}) {
   set('meta_title', input.meta_title !== undefined ? normalizeText(input.meta_title).slice(0, 160) : undefined);
   set('meta_description', input.meta_description !== undefined ? normalizeText(input.meta_description).slice(0, 400) : undefined);
 
+  // Colonnes numériques déclarées NOT NULL en base : « vide » y signifie 0, pas NULL.
+  // Les autres (prix barré, prix promotionnel, dimensions) restent réellement NULL.
+  const NON_NULLABLE = ['price', 'low_stock_threshold', 'qty', 'weight_g', 'position'];
   for (const key of ['price', 'compare_at_price', 'promo_price', 'low_stock_threshold', 'qty', 'weight_g', 'position']) {
     if (input[key] === undefined) continue;
-    // `''` (formulaire) et `null` (ligne de base, duplication) signifient « vide ».
-    // Ce test doit précéder la conversion numérique : Number(String(null)) vaut NaN.
+    // `''` (formulaire) et `null` (ligne de base, duplication, effacement explicite
+    // à l'import) signifient « vide ». Ce test doit précéder la conversion numérique :
+    // Number(String(null)) vaut NaN.
     if (input[key] === '' || input[key] === null) {
-      set(key, null);
+      set(key, NON_NULLABLE.includes(key) ? 0 : null);
       continue;
     }
     const n = Math.round(Number(String(input[key]).replace(/\s/g, '')));

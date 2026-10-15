@@ -9,6 +9,7 @@
  */
 
 const db = require('../db');
+const config = require('../config');
 const dates = require('../lib/dates');
 const { normalizeText } = require('../lib/slug');
 
@@ -277,7 +278,12 @@ function methodAllowedFor(method, { mode, zone }) {
     return { ok: false, reason: "Le paiement à la livraison n'est pas proposé pour cette destination." };
   }
   if (['wave', 'orange_money', 'mtn_momo', 'moov_money'].includes(method.code) && !method.configured) {
-    return { ok: false, reason: `${method.name} n'est pas encore connecté : choisissez un autre moyen.` };
+    // Un Mobile Money sans identifiants marchands n'est utilisable qu'en bac à sable,
+    // hors production : sinon on proposerait un moyen incapable d'encaisser.
+    const sandboxUsable = Boolean(method.simulated) && config.payments.simulationEnabled && !config.isProduction;
+    if (!sandboxUsable) {
+      return { ok: false, reason: `${method.name} n'est pas encore connecté : choisissez un autre moyen.` };
+    }
   }
   return { ok: true };
 }

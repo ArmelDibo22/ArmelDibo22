@@ -74,8 +74,12 @@ function loadCart(id, token) {
     }
     const variant = r.variant_id ? products.getVariant(r.variant_id) : null;
     const price = products.priceOf(product, variant);
-    const purchasable = products.purchasability(product, variant);
-    const availability = products.availabilityOf(product, variant);
+    // Ce panier a déjà réservé ces unités : elles restent disponibles pour lui,
+    // sinon le client verrait « rupture de stock » sur l'article qu'il vient
+    // d'ajouter — notamment quand il prend le dernier exemplaire.
+    const ownReservation = stock.reservedForCart(row.id, product.id, r.variant_id || null);
+    const purchasable = products.purchasability(product, variant, { ownReservation });
+    const availability = products.availabilityOf(product, variant, { ownReservation });
     const item = {
       id: r.id,
       productId: product.id,

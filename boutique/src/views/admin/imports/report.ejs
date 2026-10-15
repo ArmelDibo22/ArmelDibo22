@@ -1,0 +1,333 @@
+<%
+/**
+ * Rapport d'import : ce qui a été créé, mis à jour, ignoré et rejeté, ligne par
+ * ligne. Chaque rejet cite sa ligne et son motif, et les lignes rejetées peuvent
+ * être remises en file d'attente une fois le fichier corrigé.
+ */
+const report = job.report || {};
+const modeLabels = {
+  create: 'Création uniquement',
+  update: 'Mise à jour par référence',
+  upsert: 'Création ou mise à jour',
+  preview: 'Aperçu (aucune association)',
+};
+const jobStatusLabels = {
+  uploaded: 'Fichier lu',
+  mapped: 'Aperçu réalisé',
+  running: 'Import en cours',
+  done: 'Import terminé',
+  failed: 'Échec',
+  cancelled: 'Annulé',
+};
+const actionLabels = {
+  create: 'Création',
+  update: 'Mise à jour',
+  skip: 'Ignorée',
+  '': '—',
+};
+const rowStatusLabels = {
+  ok: 'Traitée',
+  error: 'Rejetée',
+  duplicate: 'Doublon',
+  skipped: 'Ignorée',
+  pending: 'En attente',
+};
+const rowStatusTone = {
+  ok: 'success',
+  error: 'danger',
+  duplicate: 'warn',
+  skipped: 'neutral',
+  pending: 'info',
+};
+const filterList = [
+  { key: '', label: 'Toutes', n: progress ? progress.total : (summary ? summary.total : 0) },
+  { key: 'ok', label: 'Traitées', n: progress ? progress.counts.ok : 0 },
+  { key: 'error', label: 'Rejetées', n: progress ? progress.counts.error : 0 },
+  { key: 'duplicate', label: 'Doublons', n: progress ? progress.counts.duplicate : 0 },
+  { key: 'skipped', label: 'Ignorées', n: progress ? progress.counts.skipped : 0 },
+  { key: 'pending', label: 'En attente', n: progress ? progress.counts.pending : 0 },
+];
+const metaOf = (row) => {
+  try { return JSON.parse(row.message || '{}'); } catch (err) { return {}; }
+};
+const createdCount = Number(report.created || 0);
+const updatedCount = Number(report.updated || 0);
+const skippedCount = Number(report.skipped || 0);
+const rejectedCount = Number(report.rejected || 0);
+const totalRows = Number(report.totalRows || job.total_rows || 0);
+const accounted = createdCount + updatedCount + skippedCount + rejectedCount;
+const errorLines = Array.isArray(report.errors) ? report.errors : [];
+const canRelaunch = rows.some((r) => r.status === 'error') || rejectedCount > 0;
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Rapport d’import — <%= job.filename %></h1>
+    <p class="sub">
+      <%= totalRows %> ligne(s) · <%= modeLabels[job.mode] || job.mode %> ·
+      <span class="pill pill--<%= job.status === 'done' ? 'success' : (job.status === 'cancelled' ? 'neutral' : 'warn') %>"><%= jobStatusLabels[job.status] || job.status %></span>
+      <% if (report.finishedAt) { %> · terminé le <%= dates.formatDateTime(report.finishedAt) %><% } %>
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/import/<%= job.id %>"><%- icon('arrow-left', 'sm') %> Assistant</a>
+    <a class="btn btn--quiet" href="/admin/import"><%- icon('grid', 'sm') %> Import / export</a>
+    <% if (canRelaunch) { %>
+      <form method="post" action="/admin/import/<%= job.id %>/relancer-erreurs" data-confirm="Remettre les lignes rejetées en file d’attente ?">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="btn btn--ghost" type="submit"><%- icon('refresh', 'sm') %> Relancer les lignes rejetées</button>
+      </form>
+    <% } %>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi kpi--success">
+    <span class="k-label">Articles créés</span>
+    <span class="k-value"><%= createdCount %></span>
+    <span class="k-sub">nouvelles fiches au catalogue</span>
+  </div>
+  <div class="kpi">
+    <span class="k-label">Articles mis à jour</span>
+    <span class="k-value"><%= updatedCount %></span>
+    <span class="k-sub">par référence existante</span>
+  </div>
+  <div class="kpi kpi--warn">
+    <span class="k-label">Lignes ignorées</span>
+    <span class="k-value"><%= skippedCount %></span>
+    <span class="k-sub">doublons ou hors du mode choisi</span>
+  </div>
+  <div class="kpi kpi--danger">
+    <span class="k-label">Lignes rejetées</span>
+    <span class="k-value"><%= rejectedCount %></span>
+    <span class="k-sub">aucun article créé pour ces lignes</span>
+  </div>
+</div>
+
+<% if (rejectedCount > 0) { %>
+  <div class="alert alert--warn">
+    <%- icon('alert', 'md') %>
+    <div>
+      <strong><%= rejectedCount %> ligne(s) rejetée(s).</strong>
+      Rien n’a été créé pour elles. Corrigez le fichier (référence, prix, nom, catégorie)
+      puis relancez l’import&nbsp;: les lignes déjà importées ne seront pas dupliquées
+      si vous utilisez le mode « création ou mise à jour ».
+      <a href="/admin/import/<%= job.id %>/rapport?statut=error">Voir les lignes rejetées</a>.
+    </div>
+  </div>
+<% } %>
+
+<% if (progress && !progress.done && job.status !== 'cancelled') { %>
+  <div class="alert alert--info">
+    <%- icon('info', 'md') %>
+    <div>
+      Import en cours : <%= progress.processed %> / <%= progress.total %> ligne(s) traitée(s) (<%= progress.percent %>&nbsp;%).
+      <a href="/admin/import/<%= job.id %>#progression">Reprendre l’exécution par lots</a>.
+    </div>
+  </div>
+<% } %>
+
+<div class="split split--2">
+  <section class="panel">
+    <div class="panel-head">
+      <h2><%- icon('file', 'md') %> Détail du lot</h2>
+    </div>
+    <div class="panel-body">
+      <dl class="kv">
+        <dt>Fichier</dt>
+        <dd class="mono"><%= job.filename %> <span class="muted">(<%= String(job.format || '').toUpperCase() %>)</span></dd>
+
+        <dt>Lignes lues</dt>
+        <dd class="num"><%= job.total_rows %></dd>
+
+        <dt>Mode</dt>
+        <dd><%= modeLabels[job.mode] || job.mode %></dd>
+
+        <dt>Cellules vides</dt>
+        <dd>
+          <% if ((job.options || {}).blankPolicy === 'clear') { %>
+            <span class="pill pill--warn">effacement explicite</span> une cellule vide vide la donnée
+          <% } else { %>
+            <span class="pill pill--success">conservation</span> une cellule vide ne modifie rien
+          <% } %>
+        </dd>
+
+        <dt>Statut des nouveaux articles</dt>
+        <dd><%= (job.options || {}).statusForNew === 'published' ? 'Publié' : 'Brouillon' %></dd>
+
+        <dt>Prix et disponibilité confirmés</dt>
+        <dd>
+          <% if ((job.options || {}).confirmImported) { %>
+            <span class="pill pill--success">oui</span> les articles importés sont achetables
+          <% } else { %>
+            <span class="pill pill--neutral">non</span> à confirmer avant publication
+          <% } %>
+        </dd>
+
+        <dt>Colonnes associées</dt>
+        <dd class="tiny">
+          <% const mappedColumns = Object.entries(job.mapping || {}).filter(function (e) { return e[1]; }); %>
+          <% if (!mappedColumns.length) { %>
+            Aucune
+          <% } else { %>
+            <%= mappedColumns.map(function (e) { return `${e[1]} → ${e[0]}`; }).join(' · ') %>
+          <% } %>
+        </dd>
+
+        <dt>Taille de lot</dt>
+        <dd class="num"><%= job.batch_size || 50 %> ligne(s) par lot</dd>
+
+        <% if (job.started_at) { %>
+          <dt>Démarré le</dt>
+          <dd><%= dates.formatDateTime(job.started_at) %></dd>
+        <% } %>
+        <% if (report.finishedAt) { %>
+          <dt>Terminé le</dt>
+          <dd><%= dates.formatDateTime(report.finishedAt) %></dd>
+        <% } %>
+
+        <dt>Répartition vérifiée</dt>
+        <dd>
+          <% if (accounted === totalRows && totalRows > 0) { %>
+            <span class="pill pill--success">complète</span> <%= accounted %> ligne(s) sur <%= totalRows %>
+          <% } else { %>
+            <span class="pill pill--info">en cours</span> <%= accounted %> ligne(s) sur <%= totalRows %>
+          <% } %>
+        </dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2><%- icon('alert', 'md') %> Motifs de rejet</h2>
+      <span class="pill pill--<%= errorLines.length ? 'danger' : 'success' %>"><%= errorLines.length %></span>
+    </div>
+    <div class="panel-body panel-body--flush">
+      <% if (!errorLines.length) { %>
+        <p class="empty-row">
+          Aucune ligne rejetée. Toutes les lignes du fichier ont été traitées, ignorées
+          ou signalées comme doublon.
+        </p>
+      <% } else { %>
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Motifs de rejet par ligne du fichier</caption>
+            <thead>
+              <tr>
+                <th scope="col">Ligne</th>
+                <th scope="col">Référence</th>
+                <th scope="col">Motif</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% errorLines.slice(0, 100).forEach(function (e) { %>
+                <tr>
+                  <td class="num tiny"><%= e.row %></td>
+                  <td class="mono tiny"><%= e.sku || '—' %></td>
+                  <td class="tiny"><%= e.message || 'Motif non précisé' %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+        <% if (errorLines.length > 100) { %>
+          <p class="tiny muted">
+            Les <%= errorLines.length - 100 %> motif(s) restant(s) sont visibles dans le tableau
+            ci-dessous, filtré sur les lignes rejetées.
+          </p>
+        <% } %>
+      <% } %>
+
+      <% if (summary && (summary.missingCategories.length || summary.missingSkus.length)) { %>
+        <div class="panel-foot">
+          <% if (summary.missingCategories.length) { %>
+            <p class="tiny"><strong>Catégories signalées :</strong> <%= summary.missingCategories.slice(0, 6).join(' · ') %></p>
+          <% } %>
+          <% if (summary.missingSkus.length) { %>
+            <p class="tiny"><strong>Références signalées :</strong> <%= summary.missingSkus.slice(0, 6).join(' · ') %></p>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2><%- icon('list', 'md') %> Lignes du fichier</h2>
+    <span class="pill pill--neutral"><%= rows.length %> affichée(s)</span>
+  </div>
+  <nav class="tabs" aria-label="Filtrer les lignes par statut">
+    <% filterList.forEach(function (f) { %>
+      <a href="/admin/import/<%= job.id %>/rapport<%= f.key ? `?statut=${f.key}` : '' %>" <%- f.key === statusFilter ? 'aria-current="page"' : '' %>>
+        <%= f.label %> <span class="pill pill--neutral"><%= f.n %></span>
+      </a>
+    <% }); %>
+  </nav>
+  <div class="panel-body panel-body--flush">
+    <% if (!rows.length) { %>
+      <p class="empty-row">
+        Aucune ligne pour ce filtre. Les lignes apparaissent ici dès que l’aperçu a été
+        lancé, puis leur statut se précise à chaque lot traité.
+      </p>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact">
+          <caption class="visually-hidden">Résultat ligne par ligne de l’import <%= job.filename %></caption>
+          <thead>
+            <tr>
+              <th scope="col">Ligne</th>
+              <th scope="col">Référence</th>
+              <th scope="col">Nom</th>
+              <th scope="col">Action</th>
+              <th scope="col">Statut</th>
+              <th scope="col">Détail</th>
+              <th scope="col">Article</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% rows.forEach(function (r) { %>
+              <%
+                const lineMeta = metaOf(r);
+                const lineErrors = lineMeta.errors || [];
+                const lineWarnings = lineMeta.warnings || [];
+                const detailParts = []
+                  .concat(lineErrors.map((e) => `${e.field ? `[${e.field}] ` : ''}${e.message}`))
+                  .concat(lineWarnings.map((w) => `${w.field ? `[${w.field}] ` : ''}${w.message}`));
+                if (!detailParts.length && lineMeta.result) detailParts.push(lineMeta.result);
+                if (!detailParts.length && lineMeta.fatal) detailParts.push(lineMeta.fatal);
+              %>
+              <tr>
+                <td class="num tiny"><%= r.row_number %></td>
+                <td class="mono tiny"><%= r.sku || (r.data && r.data.sku) || '—' %></td>
+                <td class="tiny"><%= (r.data && r.data.name) || '—' %></td>
+                <td class="tiny"><%= actionLabels[r.action] || r.action || '—' %></td>
+                <td>
+                  <span class="pill pill--<%= rowStatusTone[r.status] || 'neutral' %>"><%= rowStatusLabels[r.status] || r.status %></span>
+                </td>
+                <td class="tiny muted"><%= detailParts.join(' · ') || '—' %></td>
+                <td class="row-actions">
+                  <% if (r.product_id) { %>
+                    <a class="btn btn--sm btn--ghost" href="/admin/produits/<%= r.product_id %>"><%- icon('eye', 'sm') %> Voir</a>
+                  <% } else { %>
+                    <span class="muted tiny">—</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+  <div class="panel-foot">
+    <p class="tiny muted">
+      Un article importé sans prix confirmé, ou dont les données ne sont pas confirmées,
+      reste non achetable&nbsp;: il apparaît en vitrine uniquement après validation dans sa fiche produit.
+    </p>
+  </div>
+</section>
+
+<%- include('/admin/partials/footer') %>

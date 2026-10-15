@@ -395,7 +395,13 @@ function applyMapping(rawRow, mapping) {
   const out = {};
   for (const [field, column] of Object.entries(mapping)) {
     if (!column) continue;
-    out[field] = rawRow[column] !== undefined ? rawRow[column] : '';
+    // Après un premier aperçu, les lignes stockées sont déjà normalisées : les
+    // intitulés d'origine des colonnes ont disparu. On retombe alors sur la clé du
+    // champ, pour qu'un second aperçu (autre mode, autre association) reste fidèle
+    // au fichier au lieu de produire des lignes vides.
+    if (rawRow[column] !== undefined) out[field] = rawRow[column];
+    else if (rawRow[field] !== undefined) out[field] = rawRow[field];
+    else out[field] = '';
   }
   return out;
 }
@@ -408,29 +414,51 @@ function parseBoolean(value, fallback = null) {
   return fallback;
 }
 
-/** "Couleur:Bleu|Capacité:128 Go;Couleur:Rouge" -> [{Couleur:'Bleu',Capacité:'128 Go'},{...}] */
+/**
+ * "Couleur:Bleu|Capacité:128 Go;Couleur:Rouge|Capacité:64 Go"
+ *   -> [{Couleur:'Bleu',Capacité:'128 Go'},{Couleur:'Rouge',Capacité:'64 Go'}]
+ * « ; » sépare les variantes, « | » les options d'une même variante. Si une même
+ * option est répétée dans un groupe (« Couleur:Bleu|Couleur:Rouge »), on comprend
+ * qu'il s'agit de deux variantes et on découpe en conséquence.
+ */
 function parseVariants(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (v && typeof v === 'object' ? v : null))
+      .filter((o) => o && Object.keys(o).length);
+  }
   const s = normalizeText(String(value ?? ''));
   if (!s) return [];
-  return s
-    .split(/[;|\n]+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const options = {};
-      for (const bit of part.split(/[|/]+/)) {
+  const groups = [];
+  for (const part of s.split(/[;\n]+/).map((p) => p.trim()).filter(Boolean)) {
+    const bits = part
+      .split(/[|/]+/)
+      .map((b) => b.trim())
+      .filter(Boolean)
+      .map((bit) => {
         const [k, ...rest] = bit.split(':');
-        const key = normalizeText(k);
-        const val = normalizeText(rest.join(':'));
-        if (key && val) options[key] = val;
+        return { key: normalizeText(k), val: normalizeText(rest.join(':')) };
+      })
+      .filter((o) => o.key && o.val);
+    if (!bits.length) continue;
+    let current = {};
+    for (const bit of bits) {
+      if (Object.prototype.hasOwnProperty.call(current, bit.key)) {
+        groups.push(current);
+        current = {};
       }
-      return options;
-    })
-    .filter((o) => Object.keys(o).length);
+      current[bit.key] = bit.val;
+    }
+    if (Object.keys(current).length) groups.push(current);
+  }
+  return groups;
 }
 
 /** "Format:A4;Pages:200" -> [{label:'Format', value:'A4'}, ...] */
 function parseAttributes(value) {
+  if (Array.isArray(value)) {
+    return value.filter((a) => a && typeof a === 'object' && a.label && a.value);
+  }
   const s = normalizeText(String(value ?? ''));
   if (!s) return [];
   return s
@@ -446,6 +474,9 @@ function parseAttributes(value) {
 
 /** "REF1:2;REF2:1" -> [{sku, qty}] */
 function parseKit(value) {
+  if (Array.isArray(value)) {
+    return value.filter((k) => k && typeof k === 'object' && k.sku);
+  }
   const s = normalizeText(String(value ?? ''));
   if (!s) return [];
   return s
@@ -510,7 +541,20 @@ function normalizeRow(mapped, options) {
     else out[key] = value;
   }
   if (out.price === null && !options.allowMissingPrice) {
-    errors.push({ field: 'price', message: 'Prix manquant. Sans prix, l’article ne peut pas être publié (il sera importé en brouillon).' });
+    // En mise à jour, un prix absent ne bloque pas la ligne : avec la politique par
+    // défaut il signifie « ne pas modifier » (sinon aucun fichier de stock seul ne
+    // passerait), et avec l'effacement explicite il vide le prix — l'article repasse
+    // alors en brouillon, ce que l'avertissement suivant annonce.
+    if (options.mode === 'update') {
+      warnings.push({
+        field: 'price',
+        message: options.blankPolicy === 'clear'
+          ? 'Prix non renseigné : le prix existant sera effacé (choix explicite) et l’article repassera en brouillon.'
+          : 'Prix non renseigné : le prix existant sera conservé.',
+      });
+    } else {
+      errors.push({ field: 'price', message: 'Prix manquant. Sans prix, l’article ne peut pas être publié (il sera importé en brouillon).' });
+    }
   }
   if (out.promo_price !== null && out.price !== null && out.promo_price >= out.price) {
     warnings.push({ field: 'promo_price', message: 'Le prix promotionnel est supérieur ou égal au prix normal : promotion ignorée.' });
@@ -669,14 +713,19 @@ function preview(jobId, { mapping, mode = 'create', options = {}, limit = 20 } =
     }
 
     // Publication
+    const priceIsKept = rowResult.action === 'update' && data.price === null && opts.blankPolicy !== 'clear';
     if ((data.status === 'published' || (rowResult.action === 'create' && opts.statusForNew === 'published'))) {
-      if (!data.price || data.price <= 0) {
+      if (!priceIsKept && (!data.price || data.price <= 0)) {
         errors.push({ field: 'status', message: 'Publication impossible sans prix. L’article restera en brouillon.' });
         data.status = 'draft';
       } else if (!data.sku) {
         errors.push({ field: 'status', message: 'Publication impossible sans référence.' });
         data.status = 'draft';
       }
+    }
+    // En upsert, une ligne qui va être CRÉÉE sans prix reste invalide.
+    if (opts.mode === 'upsert' && !existsInDb && rowResult.action === 'create' && !data.price) {
+      errors.push({ field: 'price', message: 'Prix manquant : nécessaire pour créer un nouvel article.' });
     }
 
     rowResult.status = errors.length ? 'error' : rowResult.status === 'duplicate' ? 'duplicate' : rowResult.action === 'skip' ? 'skipped' : 'ok';
@@ -731,6 +780,9 @@ function runBatch(jobId, { userId = null, batchSize = null } = {}) {
   const job = getJob(jobId);
   if (!job) throw Object.assign(new Error('Lot d’import introuvable.'), { status: 404 });
   if (job.status === 'done') return progress(jobId);
+  if (job.status === 'cancelled') {
+    throw Object.assign(new Error('Ce lot d’import a été annulé : aucune ligne ne sera traitée.'), { status: 409 });
+  }
   if (job.status === 'uploaded') throw Object.assign(new Error('Associez les colonnes et lancez l’aperçu avant l’import.'), { status: 409 });
 
   const opts = job.options || {};

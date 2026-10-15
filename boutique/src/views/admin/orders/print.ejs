@@ -27,7 +27,7 @@ const paid = ['paid', 'partially_refunded', 'refunded'].includes(o.payment_statu
     <div>
       <h1 style="margin:0;font-size:1.25rem"><%= cfg['store.name'] %></h1>
       <p class="tiny muted" style="margin:2px 0 0">
-        <% if (cfg['store.address_confirmed'] && cfg['store.address']) { %><%= cfg['store.address']>, <% } %><%= cfg['store.city'] %><% if (cfg['store.region']) { %>, région <%= cfg['store.region'] %><% } %> — <%= cfg['store.country'] %>
+        <% if (cfg['store.address_confirmed'] && cfg['store.address']) { %><%= cfg['store.address'] %>, <% } %><%= cfg['store.city'] %><% if (cfg['store.region']) { %>, région <%= cfg['store.region'] %><% } %> — <%= cfg['store.country'] %>
         <% if (primaryContact) { %> · Tél. <%= primaryContact.display || primaryContact.value %><% } %>
         <% if (cfg['store.registration']) { %> · <%= cfg['store.registration'] %><% } %>
       </p>

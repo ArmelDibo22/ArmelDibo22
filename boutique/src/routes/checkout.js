@@ -74,7 +74,7 @@ router.get('/commande', (req, res) => {
 
   const totals = orders.computeTotals(
     current.items.map((i) => ({ productId: i.productId, variantId: i.variantId, qty: i.qty })),
-    { zoneId: selectedZone?.id || null }
+    { zoneId: selectedZone?.id || null, cartId: current.id }
   );
 
   const methods = payments.methodsForCheckout({ mode, zone: selectedZone, subtotal: totals.subtotal });
@@ -143,7 +143,7 @@ router.get('/commande/frais', (req, res) => {
 
   const totals = orders.computeTotals(
     current.items.map((i) => ({ productId: i.productId, variantId: i.variantId, qty: i.qty })),
-    { zoneId: zone ? zone.id : null }
+    { zoneId: zone ? zone.id : null, cartId: current.id }
   );
   const methods = payments.methodsForCheckout({ mode, zone, subtotal: totals.subtotal });
 
@@ -247,7 +247,7 @@ router.post('/commande', auth.checkoutRateLimit(), (req, res, next) => {
   const expectedZone = req.body.expected_zone ? Number(req.body.expected_zone) : null;
   const preCheck = orders.computeTotals(
     current.items.map((i) => ({ productId: i.productId, variantId: i.variantId, qty: i.qty })),
-    { zoneId: input.zoneId || null }
+    { zoneId: input.zoneId || null, cartId: current.id }
   );
   if (expectedTotal != null && !Number.isNaN(expectedTotal) && !preCheck.quoteRequired) {
     if (expectedTotal !== preCheck.total || (expectedZone && expectedZone !== Number(input.zoneId || 0))) {
