@@ -1,0 +1,92 @@
+<%
+/** Historique des mouvements de stock, filtrable par article et par motif. */
+const list = items || [];
+const reasonLabels = {
+  initial: 'Stock initial',
+  ajustement: 'Ajustement',
+  achat_fournisseur: 'Entrée fournisseur',
+  vente: 'Sortie (commande)',
+  vente_boutique: 'Vente au comptoir',
+  commande: 'Commande',
+  retour: 'Retour client',
+  annulation: 'Annulation (restitution)',
+  import: 'Import',
+  reservation: 'Réservation',
+  liberation: 'Libération',
+  kit: 'Kit',
+  perte: 'Perte / casse',
+  inventaire: 'Inventaire',
+};
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Mouvements de stock</h1>
+    <p class="sub"><%= pagination.total %> mouvement(s) enregistré(s) — chaque entrée ou sortie est tracée</p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/stock"><%- icon('arrow-left', 'sm') %> Retour au stock</a>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-body">
+    <form method="get" action="/admin/stock/mouvements" class="inline-form">
+      <div class="field" style="flex:1 1 180px">
+        <label for="produit">Article (identifiant)</label>
+        <input id="produit" name="produit" type="number" min="1" step="1" inputmode="numeric" value="<%= productId || '' %>" placeholder="Ex. : 12">
+      </div>
+      <div class="field" style="flex:1 1 220px">
+        <label for="motif">Motif</label>
+        <select id="motif" name="motif">
+          <option value="">Tous</option>
+          <% reasons.forEach(function (r) { %>
+            <option value="<%= r %>" <%= reason === r ? 'selected' : '' %>><%= reasonLabels[r] || r %></option>
+          <% }); %>
+        </select>
+      </div>
+      <button class="btn" type="submit"><%- icon('filter', 'sm') %> Filtrer</button>
+      <a class="btn btn--quiet" href="/admin/stock/mouvements">Réinitialiser</a>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>Journal</h2><span class="hint">Du plus récent au plus ancien</span></div>
+  <div class="panel-body panel-body--flush">
+    <% if (!list.length) { %>
+      <p class="empty-row">Aucun mouvement pour ces critères.</p>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact">
+          <caption class="visually-hidden">Mouvements de stock</caption>
+          <thead>
+            <tr><th scope="col">Date</th><th scope="col">Article</th><th scope="col">Motif</th><th scope="col" class="num">Variation</th><th scope="col" class="num">Stock après</th><th scope="col">Référence</th><th scope="col">Auteur</th><th scope="col">Note</th></tr>
+          </thead>
+          <tbody>
+            <% list.forEach(function (m) { %>
+              <tr>
+                <td class="tiny"><%= dates.formatDateTime(m.created_at) %></td>
+                <td>
+                  <a href="/admin/produits/<%= m.product_id %>" style="font-weight:500"><%= m.product_name %></a>
+                  <span class="tiny muted mono" style="display:block"><%= m.product_sku || '—' %></span>
+                </td>
+                <td><span class="pill pill--<%= m.delta > 0 ? 'success' : (m.delta < 0 ? 'warn' : 'neutral') %>"><%= reasonLabels[m.reason] || m.reason %></span></td>
+                <td class="num"><strong><%= m.delta > 0 ? '+' : '' %><%= m.delta %></strong></td>
+                <td class="num"><%= m.qty_after %></td>
+                <td class="tiny mono"><%= m.reference || '—' %></td>
+                <td class="tiny"><%= m.actor_name || 'système' %></td>
+                <td class="tiny muted"><%= m.note || '—' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/partials/pagination', { pagination }) %>
+
+<%- include('/admin/partials/footer') %>

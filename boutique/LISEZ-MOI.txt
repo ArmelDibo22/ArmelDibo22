@@ -1,0 +1,89 @@
+================================================================================
+ ETS LE PRIVILÈGE DAOUKRO — boutique en ligne
+ Archive livrée le 15 octobre 2026
+================================================================================
+
+CONTENU DE L'ARCHIVE
+  LISEZ-MOI.txt          ce fichier
+  README.md              présentation du projet
+  boutique/              application complète (code, vues, styles, scripts, tests)
+  boutique/docs/         documentation (7 documents)
+  boutique/.env.example  modèle de configuration, SANS AUCUN SECRET
+
+Ce qui n'est PAS dans l'archive (volontairement) :
+  node_modules/          à recréer avec `npm ci` (88 Mo)
+  data/                  bases de données, photos, journaux, sauvegardes
+  .env                   configuration réelle et secrets
+  .git/                  historique du dépôt
+
+--------------------------------------------------------------------------------
+DÉMARRER EN 5 COMMANDES (Node.js 22.5 ou plus récent requis)
+--------------------------------------------------------------------------------
+
+  cd boutique
+  npm ci --no-audit --no-fund          # installe les 6 dépendances
+  cp .env.example .env                 # puis éditer .env (2 secrets à générer)
+  npm run migrate && npm run seed      # crée la base et la configuration de base
+  npm start                            # boutique sur http://localhost:3000
+
+  Boutique        http://localhost:3000
+  Administration  http://localhost:3000/admin
+                  identifiants = ADMIN_EMAIL / ADMIN_PASSWORD du fichier .env
+
+  Le catalogue réel démarre VIDE par conception : aucun article n'est inventé.
+
+--------------------------------------------------------------------------------
+VOIR LA BOUTIQUE REMPLIE (données fictives, base séparée)
+--------------------------------------------------------------------------------
+
+  npm run reset:demo                   # crée data/demo.sqlite + data/demo-media
+  DEMO=true PORT=3000 npm start        # 29 articles, 3 commandes, 1 vente comptoir
+                                       # admin@leprivilege.ci / Daoukro-2026!
+                                       # vendeur.demo@leprivilege.ci / Vendeur-Demo-2026!
+
+  La démonstration utilise une base et un dossier de médias SÉPARÉS : les données
+  réelles ne sont jamais touchées. Elle est refusée en NODE_ENV=production.
+
+--------------------------------------------------------------------------------
+VÉRIFIER L'INSTALLATION
+--------------------------------------------------------------------------------
+
+  npm test                             # 86 tests automatisés, bases isolées
+  npm run check                        # 74 vérifications (pages, accès, intégrité)
+  DEMO=true npm run journey -- --url http://127.0.0.1:3000
+                                       # 252 vérifications du parcours métier réel, en 16 étapes
+                                       # (écrit des données : démonstration requise)
+
+  Résultats obtenus le 15 octobre 2026 : 86/86, 74/74, 252/252, 0 erreur serveur.
+
+--------------------------------------------------------------------------------
+DOCUMENTATION (boutique/docs/)
+--------------------------------------------------------------------------------
+
+  README.md                        index et principes
+  guide-articles.md                ajouter, modifier, publier un article
+  guide-import.md                  importer un catalogue depuis Excel ou CSV
+  etat-des-lieux.md                ce qui fonctionne / est simulé / attend une
+                                   configuration externe  ← À LIRE EN PREMIER
+  installation-exploitation.md     installation, lancement, sauvegarde,
+                                   restauration, déploiement, supervision
+  schema-donnees.md                modèle de données et règles métier
+  services-et-couts.md             services à connecter, coûts à vérifier
+  rapport-de-tests.md              tests réalisés, anomalies trouvées et corrigées
+
+--------------------------------------------------------------------------------
+À SAVOIR AVANT TOUTE MISE EN LIGNE
+--------------------------------------------------------------------------------
+
+  * Aucun service payant n'a été souscrit, aucune boutique n'est publiée.
+  * Aucune information d'établissement n'est inventée : adresse, horaires, logo,
+    tarifs de livraison et textes légaux restent à confirmer (liste « Mise en
+    route » du tableau de bord, 1 information sur 8 confirmée aujourd'hui).
+  * Les identifiants marchands Mobile Money sont vides : tant qu'ils ne sont pas
+    fournis par la passerelle, les moyens correspondants restent « non configurés »
+    et le paiement en espèces (retrait ou livraison) fonctionne pleinement.
+  * En production : NODE_ENV=production, PAYMENT_SIMULATION_ENABLED=false,
+    APP_SECRET et PAYMENT_WEBHOOK_SECRET générés, mot de passe administrateur
+    changé. L'application refuse de démarrer avec un secret faible.
+  * Sauvegarde quotidienne recommandée : `npm run backup` (base) ou
+    `npm run backup:full` (base + photos), puis copie HORS du serveur.

@@ -1,0 +1,335 @@
+<%
+/**
+ * Liste des produits : filtres serveur, sélection multiple et actions en masse.
+ * Aucune limite d'articles côté code : la liste est paginée et filtrée en SQL.
+ *
+ * Le formulaire d'actions en masse est placé AVANT la table ; les cases à cocher
+ * lui sont rattachées par l'attribut `form`, ce qui évite d'imbriquer des
+ * formulaires (interdit en HTML) avec les actions rapides de chaque ligne.
+ */
+const f = filters || {};
+const statusOf = (v) => (statuses.find((s) => s.value === v) || { label: v }).label;
+const toneOf = (v) => (v === 'published' ? 'success' : v === 'draft' ? 'warn' : 'neutral');
+const flatTree = [];
+(function walk(nodes, depth) {
+  nodes.forEach(function (n) {
+    flatTree.push({ id: n.id, name: n.name, depth: depth, count: n.product_count });
+    if (n.children && n.children.length) walk(n.children, depth + 1);
+  });
+})(tree, 0);
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Produits</h1>
+    <p class="sub">
+      <%= counts.total %> article(s) au total · <%= counts.published %> publié(s) · <%= counts.draft %> brouillon(s) ·
+      <%= counts.archived %> archivé(s)<% if (counts.notConfirmed) { %> · <strong style="color:var(--warn)"><%= counts.notConfirmed %> non confirmé(s)</strong><% } %>
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn" href="/admin/produits/nouveau"><%- icon('plus', 'sm') %> Nouvel article</a>
+    <a class="btn btn--ghost" href="/admin/import"><%- icon('upload', 'sm') %> Importer un fichier</a>
+    <a class="btn btn--quiet" href="/admin/export/catalogue.xlsx"><%- icon('download', 'sm') %> Exporter</a>
+  </div>
+</div>
+
+<!-- ---------------- Raccourcis d'état ---------------- -->
+<div class="active-filters" style="margin-bottom:var(--space-4)">
+  <a class="chip" href="/admin/produits">Tous (<%= counts.total %>)</a>
+  <a class="chip <%= f.statuses && f.statuses[0] === 'published' ? 'is-active' : '' %>" href="<%= qs(req, { statut: 'published', page: null }) %>">Publiés (<%= counts.published %>)</a>
+  <a class="chip <%= f.statuses && f.statuses[0] === 'draft' ? 'is-active' : '' %>" href="<%= qs(req, { statut: 'draft', page: null }) %>">Brouillons (<%= counts.draft %>)</a>
+  <a class="chip <%= f.statuses && f.statuses[0] === 'archived' ? 'is-active' : '' %>" href="<%= qs(req, { statut: 'archived', page: null }) %>">Archivés (<%= counts.archived %>)</a>
+  <a class="chip <%= f.notConfirmed ? 'is-active' : '' %>" href="<%= qs(req, { confirmation: 'non', page: null }) %>">Prix/dispo. non confirmés (<%= counts.notConfirmed %>)</a>
+  <a class="chip <%= f.lowStock ? 'is-active' : '' %>" href="<%= qs(req, { stock: 'alerte', page: null }) %>">Stock faible (<%= counts.lowStock %>)</a>
+  <a class="chip <%= f.noImage ? 'is-active' : '' %>" href="<%= qs(req, { photo: 'sans', page: null }) %>">Sans photo (<%= counts.withoutImage %>)</a>
+</div>
+
+<!-- ---------------- Filtres ---------------- -->
+<div class="panel">
+  <div class="panel-body">
+    <form method="get" action="/admin/produits" class="inline-form">
+      <div class="field" style="flex:2 1 220px">
+        <label for="q">Recherche plein texte</label>
+        <input id="q" name="q" type="search" value="<%= f.q || '' %>" placeholder="Nom, description, référence…">
+      </div>
+      <div class="field" style="flex:1 1 130px">
+        <label for="ref">Référence</label>
+        <input id="ref" name="ref" type="text" value="<%= f.sku || '' %>" placeholder="SKU">
+      </div>
+      <div class="field" style="flex:1 1 160px">
+        <label for="statut">Statut</label>
+        <select id="statut" name="statut">
+          <option value="">Tous</option>
+          <% statuses.forEach(function (st) { %>
+            <option value="<%= st.value %>" <%= f.statuses && f.statuses[0] === st.value ? 'selected' : '' %>><%= st.label %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 180px">
+        <label for="categorie">Catégorie</label>
+        <select id="categorie" name="categorie">
+          <option value="">Toutes</option>
+          <% flatTree.forEach(function (c) { %>
+            <option value="<%= c.id %>" <%= String(req.query.categorie || '') === String(c.id) ? 'selected' : '' %>><%= '— '.repeat(c.depth) %><%= c.name %> (<%= c.count %>)</option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 150px">
+        <label for="marque">Marque</label>
+        <select id="marque" name="marque">
+          <option value="">Toutes</option>
+          <% brands.forEach(function (b) { %>
+            <option value="<%= b.id %>" <%= String(req.query.marque || '') === String(b.id) ? 'selected' : '' %>><%= b.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 150px">
+        <label for="tri">Tri</label>
+        <select id="tri" name="tri">
+          <% [['nouveaute', 'Plus récents'], ['nom_asc', 'Nom A → Z'], ['prix_asc', 'Prix croissant'], ['prix_desc', 'Prix décroissant']].forEach(function (o) { %>
+            <option value="<%= o[0] %>" <%= (f.sort || 'nouveaute') === o[0] ? 'selected' : '' %>><%= o[1] %></option>
+          <% }); %>
+        </select>
+      </div>
+      <button class="btn" type="submit"><%- icon('filter', 'sm') %> Filtrer</button>
+      <a class="btn btn--quiet" href="/admin/produits">Réinitialiser</a>
+    </form>
+  </div>
+</div>
+
+<!-- ---------------- Actions en masse ---------------- -->
+<form method="post" action="/admin/produits/masse" id="form-masse">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <div data-bulk-bar hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span data-bulk-count>0</span> article(s) sélectionné(s)</h2>
+        <span class="hint">Chaque modification est journalisée. La sélection porte sur la page affichée.</span>
+      </div>
+      <div class="panel-body">
+        <div class="form-grid form-grid--3">
+          <div class="field">
+            <label for="bulk-action">Action</label>
+            <select id="bulk-action" name="action">
+              <option value="statut">Changer le statut</option>
+              <option value="categorie">Changer la catégorie</option>
+              <option value="prix">Ajuster les prix</option>
+              <option value="stock">Ajuster le stock</option>
+              <option value="seuil">Changer le seuil d’alerte</option>
+              <option value="confirmation">Confirmer prix et disponibilité</option>
+              <option value="suivi_stock">Activer/désactiver le suivi de stock</option>
+              <option value="mise_en_avant">Mettre en avant</option>
+              <option value="marque">Attribuer une marque</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulk-status">Nouveau statut</label>
+            <select id="bulk-status" name="status">
+              <% statuses.forEach(function (st) { %><option value="<%= st.value %>"><%= st.label %></option><% }); %>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulk-category">Nouvelle catégorie</label>
+            <select id="bulk-category" name="category_id">
+              <option value="">— inchangée —</option>
+              <% flatTree.forEach(function (c) { %>
+                <option value="<%= c.id %>"><%= '— '.repeat(c.depth) %><%= c.name %></option>
+              <% }); %>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulk-price-set">Prix fixe (FCFA)</label>
+            <input id="bulk-price-set" name="price_set" type="number" min="0" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="bulk-price-delta">Variation (± FCFA)</label>
+            <input id="bulk-price-delta" name="price_delta" type="number" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="bulk-price-percent">Variation (± %)</label>
+            <input id="bulk-price-percent" name="price_percent" type="number" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="bulk-round">Arrondir à</label>
+            <select id="bulk-round" name="round_to">
+              <option value="">— aucun arrondi —</option>
+              <option value="50">50 FCFA</option>
+              <option value="100">100 FCFA</option>
+              <option value="500">500 FCFA</option>
+              <option value="1000">1 000 FCFA</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulk-stock">Variation de stock (±)</label>
+            <input id="bulk-stock" name="stock_delta" type="number" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="bulk-threshold">Seuil d’alerte</label>
+            <input id="bulk-threshold" name="low_stock_threshold" type="number" min="0" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="bulk-confirmed">Confirmation des données</label>
+            <select id="bulk-confirmed" name="data_confirmed">
+              <option value="1">Prix et disponibilité confirmés</option>
+              <option value="0">Marquer comme non confirmé</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulk-track">Suivi de stock</label>
+            <select id="bulk-track" name="track_stock">
+              <option value="1">Suivre le stock</option>
+              <option value="0">Ne pas suivre (disponible sur commande)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulk-featured">Mise en avant</label>
+            <select id="bulk-featured" name="featured">
+              <option value="1">Mettre en avant</option>
+              <option value="0">Retirer de la sélection</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulk-brand">Marque</label>
+            <input id="bulk-brand" name="brand" type="text" maxlength="120" placeholder="Nom de la marque">
+          </div>
+        </div>
+        <p class="tiny muted" style="margin:0">
+          Seuls les champs utiles à l’action choisie sont pris en compte. Un article dont le prix ou la
+          disponibilité n’est pas confirmé repasse automatiquement en brouillon.
+        </p>
+      </div>
+      <div class="panel-foot btn-row">
+        <button class="btn" type="submit" data-confirm-action="Appliquer cette modification à tous les articles sélectionnés ?">
+          <%- icon('check', 'sm') %> Appliquer
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
+
+<!-- ---------------- Liste ---------------- -->
+<div class="panel">
+  <div class="panel-head">
+    <h2><%= pagination.total %> article(s)</h2>
+    <span class="hint">Page <%= pagination.page %>/<%= pagination.pages %></span>
+  </div>
+  <div class="panel-body panel-body--flush">
+    <% if (!items.length) { %>
+      <div class="empty-row">
+        <%- icon('box', 'xl') %>
+        <p style="margin:var(--space-3) 0"><strong>Aucun article ne correspond.</strong></p>
+        <p class="tiny muted" style="max-width:60ch;margin:0 auto">
+          Le catalogue est vide tant qu’aucun article n’a été ajouté. Créez-en un, ou importez un fichier
+          (.xlsx / .csv) : les articles importés peuvent rester en brouillon le temps de compléter prix et photos.
+        </p>
+        <div class="btn-row" style="justify-content:center;margin-top:var(--space-4)">
+          <a class="btn" href="/admin/produits/nouveau">Créer un article</a>
+          <a class="btn btn--ghost" href="/admin/import">Importer un fichier</a>
+          <a class="btn btn--quiet" href="/admin/produits">Voir tous les articles</a>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact" data-bulk-table>
+          <caption class="visually-hidden">Liste des articles du catalogue</caption>
+          <thead>
+            <tr>
+              <th scope="col"><input type="checkbox" data-select-all aria-label="Tout sélectionner sur cette page"></th>
+              <th scope="col">Article</th>
+              <th scope="col">Catégorie</th>
+              <th scope="col" class="num">Prix</th>
+              <th scope="col" class="num">Disponible</th>
+              <th scope="col">Statut</th>
+              <th scope="col">Données</th>
+              <th scope="col" class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% items.forEach(function (p) { %>
+              <tr data-status="<%= p.status %>">
+                <td><input type="checkbox" name="ids" value="<%= p.id %>" form="form-masse" data-bulk-id aria-label="Sélectionner <%= p.name %>"></td>
+                <td>
+                  <div style="display:flex;gap:10px;align-items:center">
+                    <span class="thumb-cell">
+                      <% if (p.image && p.image.fileKey) { %>
+                        <img src="<%= mediaUrl(p.image.fileKey, 'thumb') %>" alt="" loading="lazy" width="46" height="46">
+                      <% } else { %><span style="color:var(--ink-3)"><%- icon('image', 'sm') %></span><% } %>
+                    </span>
+                    <span style="min-width:0">
+                      <a href="/admin/produits/<%= p.id %>" style="font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34ch"><%= p.name %></a>
+                      <span class="tiny muted mono"><%= p.sku || 'sans référence' %></span>
+                      <% if (p.is_kit) { %><span class="pill pill--brand" style="margin-left:4px">Kit</span><% } %>
+                      <% if (p.has_variants) { %><span class="pill" style="margin-left:4px">Variantes</span><% } %>
+                      <% if (p.featured) { %><span class="pill pill--info" style="margin-left:4px">En avant</span><% } %>
+                    </span>
+                  </div>
+                </td>
+                <td class="tiny"><%= p.category_name || '—' %><% if (p.brand_name) { %><span class="muted" style="display:block"><%= p.brand_name %></span><% } %></td>
+                <td class="num">
+                  <% if (p.price_info.sale > 0) { %>
+                    <strong><%= money.format(p.price_info.sale) %></strong>
+                    <% if (p.price_info.compareAt) { %><span class="price-compare" style="display:block;font-size:.78rem"><%= money.format(p.price_info.compareAt) %></span><% } %>
+                    <% if (p.price_info.range) { %><span class="tiny muted" style="display:block">dès <%= money.format(p.price_info.range.min) %></span><% } %>
+                  <% } else { %>
+                    <span class="pill pill--warn">Sans prix</span>
+                  <% } %>
+                </td>
+                <td class="num">
+                  <% if (!p.track_stock) { %>
+                    <span class="pill pill--info">Sur commande</span>
+                  <% } else { %>
+                    <span class="pill pill--<%= p.availability.status === 'out' ? 'danger' : (p.availability.status === 'low' ? 'warn' : 'success') %>"
+                          title="En stock : <%= p.stock_on_hand %> · Réservé : <%= Math.max(0, p.stock_on_hand - p.availability.available) %>">
+                      <%= p.availability.available %>
+                    </span>
+                  <% } %>
+                </td>
+                <td><span class="pill pill--<%= toneOf(p.status) %>"><%= statusOf(p.status) %></span></td>
+                <td>
+                  <% if (p.data_confirmed) { %>
+                    <span class="pill pill--success" title="Prix et disponibilité confirmés"><%- icon('check', 'xs') %> Confirmé</span>
+                  <% } else { %>
+                    <span class="pill pill--warn" title="Non vendable tant que le prix et la disponibilité ne sont pas confirmés">À confirmer</span>
+                  <% } %>
+                </td>
+                <td class="right">
+                  <span class="row-actions">
+                    <a class="btn btn--sm btn--quiet" href="/admin/produits/<%= p.id %>" title="Modifier"><%- icon('edit', 'xs') %><span class="visually-hidden">Modifier <%= p.name %></span></a>
+                    <a class="btn btn--sm btn--quiet" href="/produit/<%= p.slug %>" target="_blank" rel="noopener" title="Voir la fiche publique"><%- icon('eye', 'xs') %><span class="visually-hidden">Voir la fiche publique</span></a>
+                    <form method="post" action="/admin/produits/<%= p.id %>/dupliquer" style="display:inline">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <button class="btn btn--sm btn--quiet" type="submit" title="Dupliquer"><%- icon('copy', 'xs') %><span class="visually-hidden">Dupliquer</span></button>
+                    </form>
+                    <form method="post" action="/admin/produits/<%= p.id %>/statut" style="display:inline">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <input type="hidden" name="retour" value="/admin/produits<%= qs(req) %>">
+                      <input type="hidden" name="status" value="<%= p.status === 'published' ? 'draft' : 'published' %>">
+                      <button class="btn btn--sm <%= p.status === 'published' ? 'btn--quiet' : 'btn--accent' %>" type="submit"
+                              title="<%= p.status === 'published' ? 'Dépublier' : 'Publier' %>">
+                        <%- icon(p.status === 'published' ? 'eye' : 'check', 'xs') %>
+                        <span class="visually-hidden"><%= p.status === 'published' ? 'Dépublier' : 'Publier' %></span>
+                      </button>
+                    </form>
+                    <% if (can('catalog.delete')) { %>
+                      <form method="post" action="/admin/produits/<%= p.id %>/supprimer" style="display:inline"
+                            data-confirm="Supprimer « <%= p.name %> » ? S’il apparaît dans des commandes, il sera archivé au lieu d’être effacé.">
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                        <button class="btn btn--sm btn--quiet" type="submit" title="Supprimer"><%- icon('trash', 'xs') %><span class="visually-hidden">Supprimer</span></button>
+                      </form>
+                    <% } %>
+                  </span>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/partials/pagination', { pagination }) %>
+
+<%- include('/admin/partials/footer') %>

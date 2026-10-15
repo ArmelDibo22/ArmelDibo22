@@ -1,0 +1,293 @@
+<%
+/**
+ * Tableau de bord.
+ * Les indicateurs séparent strictement : commandes reçues, ventes encaissées
+ * en ligne, ventes au comptoir et remboursements.
+ */
+const d = dashboard;
+const maxSeries = Math.max(1, ...series.map((s) => Math.max(s.ordersAmount, s.paidAmount + s.posAmount)));
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Tableau de bord</h1>
+    <p class="sub">
+      Situation au <%= dates.formatDateTime(dates.nowIso()) %> ·
+      <%= productCounts.total %> article(s) au catalogue dont <%= productCounts.published %> publié(s)
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn" href="/admin/produits/nouveau"><%- icon('plus', 'sm') %> Nouvel article</a>
+    <a class="btn btn--ghost" href="/admin/caisse"><%- icon('store', 'sm') %> Vente au comptoir</a>
+    <a class="btn btn--quiet" href="/admin/import"><%- icon('upload', 'sm') %> Importer</a>
+  </div>
+</div>
+
+<!-- ---------------- À faire en priorité ---------------- -->
+<% const urgent = [];
+   if (d.pending.quotes > 0) urgent.push({ tone: 'warn', icon: 'quote', label: `${d.pending.quotes} commande(s) en attente d’un devis de livraison`, href: '/admin/commandes?groupe=quote' });
+   if (d.pending.awaitingCash.count > 0) urgent.push({ tone: 'warn', icon: 'cash', label: `${d.pending.awaitingCash.count} encaissement(s) à confirmer (${money.format(d.pending.awaitingCash.amount)})`, href: '/admin/commandes?groupe=cash' });
+   if (d.pending.openOrders > 0) urgent.push({ tone: 'info', icon: 'cart', label: `${d.pending.openOrders} commande(s) ouverte(s) à préparer`, href: '/admin/commandes' });
+   if (d.pending.lowStock > 0) urgent.push({ tone: 'warn', icon: 'alert', label: `${d.pending.lowStock} article(s) sous le seuil d’alerte`, href: '/admin/stock' });
+   if (d.pending.outOfStock > 0) urgent.push({ tone: 'danger', icon: 'alert', label: `${d.pending.outOfStock} article(s) publié(s) en rupture`, href: '/admin/stock?vue=ruptures' });
+   if (d.pending.unconfirmed > 0) urgent.push({ tone: 'info', icon: 'shield', label: `${d.pending.unconfirmed} article(s) non confirmés (non vendables en l’état)`, href: '/admin/produits?confirme=0' });
+   if (d.pending.drafts > 0) urgent.push({ tone: 'info', icon: 'edit', label: `${d.pending.drafts} brouillon(s) à compléter`, href: '/admin/produits?statut=draft' });
+%>
+<% if (urgent.length) { %>
+  <div class="panel">
+    <div class="panel-head"><h2>À traiter</h2><span class="hint"><%= urgent.length %> point(s)</span></div>
+    <div class="panel-body" style="padding:0">
+      <ul style="list-style:none;margin:0;padding:0">
+        <% urgent.forEach(function (u) { %>
+          <li style="border-bottom:1px solid var(--border)">
+            <a href="<%= u.href %>" style="display:flex;align-items:center;gap:12px;padding:12px var(--space-4);text-decoration:none !important;color:inherit">
+              <span class="pill pill--<%= u.tone %>"><%- icon(u.icon, 'sm') %></span>
+              <span style="flex:1 1 auto;font-weight:500"><%= u.label %></span>
+              <%- icon('chevron-right', 'sm') %>
+            </a>
+          </li>
+        <% }); %>
+      </ul>
+    </div>
+  </div>
+<% } %>
+
+<!-- ---------------- Indicateurs du jour ---------------- -->
+<h2 style="margin:var(--space-5) 0 var(--space-3);font-size:1.05rem">Aujourd’hui</h2>
+<div class="kpi-grid">
+  <div class="kpi">
+    <span class="k-label">Commandes reçues</span>
+    <span class="k-value"><%= d.today.orders.n %></span>
+    <span class="k-sub"><%= money.format(d.today.orders.amount) %> · hier <%= d.yesterday.orders.n %></span>
+  </div>
+  <div class="kpi kpi--success">
+    <span class="k-label">Encaissé en ligne</span>
+    <span class="k-value"><%= money.format(d.today.paid.amount) %></span>
+    <span class="k-sub"><%= d.today.paid.n %> paiement(s) confirmé(s)</span>
+  </div>
+  <div class="kpi kpi--accent">
+    <span class="k-label">Ventes au comptoir</span>
+    <span class="k-value"><%= money.format(d.today.pos.amount) %></span>
+    <span class="k-sub"><%= d.today.pos.n %> vente(s) · hier <%= money.format(d.yesterday.pos.amount) %></span>
+  </div>
+  <div class="kpi kpi--warn">
+    <span class="k-label">En attente d’encaissement</span>
+    <span class="k-value"><%= money.format(d.pending.awaitingCash.amount) %></span>
+    <span class="k-sub"><%= d.pending.awaitingCash.count %> commande(s) à confirmer</span>
+  </div>
+  <div class="kpi kpi--danger">
+    <span class="k-label">Remboursements du jour</span>
+    <span class="k-value"><%= money.format(d.today.refunds.amount) %></span>
+    <span class="k-sub"><%= d.today.refunds.n %> remboursement(s)</span>
+  </div>
+</div>
+
+<div class="split split--2">
+  <div>
+    <!-- ---------------- 7 derniers jours ---------------- -->
+    <div class="panel">
+      <div class="panel-head">
+        <h2>7 derniers jours</h2>
+        <span class="hint">
+          <%= d.week.orders.n %> commande(s) · <%= money.format(d.week.orders.amount) %> reçus ·
+          <%= money.format(d.week.paid.amount) %> encaissés en ligne · <%= money.format(d.week.pos.amount) %> au comptoir
+        </span>
+      </div>
+      <div class="panel-body">
+        <div class="spark" role="img" aria-label="Commandes reçues et montants encaissés sur les 7 derniers jours">
+          <% series.slice(-7).forEach(function (s) {
+               const hOrders = Math.round((s.ordersAmount / maxSeries) * 100);
+               const hPaid = Math.round(((s.paidAmount + s.posAmount) / maxSeries) * 100);
+               const label = `${s.date} : ${s.orders} commande(s), ${money.format(s.ordersAmount)} reçus, ${money.format(s.paidAmount + s.posAmount)} encaissés`;
+          %>
+            <span class="bar" style="height:<%= Math.max(2, hOrders) %>%" data-label="<%= label %>"></span>
+            <span class="bar bar--paid" style="height:<%= Math.max(2, hPaid) %>%" data-label="<%= label %>"></span>
+          <% }); %>
+        </div>
+        <div class="spark-legend">
+          <span><i style="background:var(--brand)"></i>Montant des commandes reçues</span>
+          <span><i style="background:var(--success)"></i>Montant encaissé (ligne + comptoir)</span>
+        </div>
+        <p style="margin-top:var(--space-3)"><a class="btn btn--ghost btn--sm" href="/admin/statistiques">Statistiques détaillées</a></p>
+      </div>
+    </div>
+
+    <!-- ---------------- Dernières commandes ---------------- -->
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Dernières commandes</h2>
+        <a class="btn btn--sm btn--quiet" href="/admin/commandes">Toutes</a>
+      </div>
+      <div class="panel-body panel-body--flush">
+        <% if (!recentOrders.length) { %>
+          <p class="empty-row">Aucune commande enregistrée pour l’instant.</p>
+        <% } else { %>
+          <div class="scroll-x">
+            <table class="data">
+              <caption class="visually-hidden">Huit dernières commandes</caption>
+              <thead>
+                <tr><th scope="col">Référence</th><th scope="col">Date</th><th scope="col">Client</th><th scope="col">Mode</th><th scope="col">Statuts</th><th scope="col" class="num">Total</th><th scope="col"></th></tr>
+              </thead>
+              <tbody>
+                <% recentOrders.forEach(function (o) { %>
+                  <tr>
+                    <td class="mono"><%= o.reference %></td>
+                    <td class="tiny"><%= dates.formatDateTime(o.placed_at) %></td>
+                    <td>
+                      <%= o.recipient_name %>
+                      <span class="tiny muted" style="display:block"><%= formatPhone(o.recipient_phone) %></span>
+                    </td>
+                    <td class="tiny"><%= o.fulfillment_mode === 'pickup' ? 'Retrait' : (o.zone_name || 'Livraison') %></td>
+                    <td>
+                      <span class="pill pill--<%= statusTone('order', o.status) %>"><%= labels.order[o.status] || o.status %></span>
+                      <span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span>
+                      <% if (o.quote_required && o.quote_status !== 'accepted') { %><span class="pill pill--warn">Devis</span><% } %>
+                    </td>
+                    <td class="num"><strong><%= money.format(o.total) %></strong></td>
+                    <td class="right"><a class="btn btn--sm btn--quiet" href="/admin/commandes/<%= o.id %>">Ouvrir</a></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <!-- ---------------- Mise en route ---------------- -->
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Mise en route</h2>
+        <span class="hint"><%= checklist.filter((c) => c.done).length %>/<%= checklist.length %></span>
+      </div>
+      <div class="panel-body">
+        <ul class="checklist">
+          <% checklist.forEach(function (c) { %>
+            <li data-done="<%= c.done ? 'true' : 'false' %>">
+              <span class="box"><% if (c.done) { %><%- icon('check', 'xs') %><% } %></span>
+              <span>
+                <span class="c-label"><%= c.label %></span>
+                <% if (!c.done && c.hint) { %><span class="c-hint"><%= c.hint %></span><% } %>
+              </span>
+            </li>
+          <% }); %>
+        </ul>
+        <div class="progress-track" aria-hidden="true">
+          <div class="progress-bar" style="width:<%= Math.round((checklist.filter((c) => c.done).length / Math.max(1, checklist.length)) * 100) %>%"></div>
+        </div>
+        <p class="tiny muted">
+          Ces éléments correspondent à des informations non confirmées à ce jour (adresse, horaires, logo officiel,
+          tarifs de livraison, textes légaux). Rien n’est inventé : complétez-les dans les réglages.
+        </p>
+        <p><a class="btn btn--sm btn--ghost" href="/admin/reglages">Ouvrir les réglages</a></p>
+      </div>
+    </div>
+
+    <!-- ---------------- Catalogue ---------------- -->
+    <div class="panel">
+      <div class="panel-head"><h2>Catalogue</h2><a class="btn btn--sm btn--quiet" href="/admin/produits">Gérer</a></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>Publiés</dt><dd><strong><%= productCounts.published %></strong></dd>
+          <dt>Brouillons</dt><dd><%= productCounts.draft %></dd>
+          <dt>Archivés</dt><dd><%= productCounts.archived %></dd>
+          <dt>Non confirmés</dt><dd><%= productCounts.notConfirmed %> <span class="tiny muted">(non vendables)</span></dd>
+          <dt>Sans photo</dt><dd><%= productCounts.withoutImage %></dd>
+          <dt>Stock faible</dt><dd><%= productCounts.lowStock %></dd>
+          <dt>Ruptures</dt><dd><%= productCounts.outOfStock %></dd>
+        </dl>
+        <p class="tiny muted" style="margin-top:var(--space-3)">
+          Aucun plafond d’articles n’est codé dans l’application : la limite vient de l’hébergement
+          (espace disque pour les photos, mémoire de la base). Voir <a href="/admin/etat">État technique</a>.
+        </p>
+      </div>
+    </div>
+
+    <!-- ---------------- Paiements ---------------- -->
+    <div class="panel">
+      <div class="panel-head"><h2>Paiements</h2><a class="btn btn--sm btn--quiet" href="/admin/reglages?onglet=paiements">Configurer</a></div>
+      <div class="panel-body">
+        <p style="margin-bottom:var(--space-3)">
+          <span class="pill pill--<%= paymentReady > 0 ? 'success' : 'warn' %>">
+            <%= paymentReady %> moyen(s) utilisable(s)
+          </span>
+        </p>
+        <ul style="list-style:none;margin:0;padding:0;font-size:.9rem">
+          <% paymentMethodsSummary.forEach(function (m) { %>
+            <li style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+              <span class="pay-logo" style="width:34px;height:24px;font-size:.55rem;background:<%= m.color || 'var(--brand)' %>"><%= String(m.name).slice(0, 2).toUpperCase() %></span>
+              <span style="flex:1 1 auto"><%= m.name %></span>
+              <span class="pill pill--<%= m.enabled ? (m.kind === 'cash' || m.configured ? 'success' : (m.simulated ? 'warn' : 'danger')) : 'neutral' %>">
+                <%= m.enabled ? (m.kind === 'cash' ? 'Actif' : (m.configured ? 'Connecté' : (m.simulated ? 'Bac à sable' : 'Non configuré'))) : 'Désactivé' %>
+              </span>
+            </li>
+          <% }); %>
+        </ul>
+        <p class="tiny muted" style="margin-top:var(--space-3)">
+          Les passerelles Mobile Money réelles (Wave, Orange Money, MTN MoMo, Moov Money) demandent un contrat marchand :
+          aucune API n’est inventée ici. En attendant, le mode manuel et le bac à sable permettent de fonctionner.
+        </p>
+        <% if (webhookStats && webhookStats.total) { %>
+          <p class="tiny muted">
+            Notifications reçues : <%= webhookStats.total %> · traitées <%= webhookStats.processed %> ·
+            doublons <%= webhookStats.duplicates %> · rejetées <%= webhookStats.rejected %> ·
+            signatures invalides <%= webhookStats.bad_signature %>.
+            <a href="/admin/reglages/paiements/notifications">Détail</a>
+          </p>
+        <% } %>
+      </div>
+    </div>
+
+    <!-- ---------------- Stock à surveiller ---------------- -->
+    <div class="panel">
+      <div class="panel-head"><h2>Stock à surveiller</h2><a class="btn btn--sm btn--quiet" href="/admin/stock">Tout voir</a></div>
+      <div class="panel-body panel-body--flush">
+        <% if (!lowStock.length) { %>
+          <p class="empty-row">Aucune alerte de stock.</p>
+        <% } else { %>
+          <ul style="list-style:none;margin:0;padding:0">
+            <% lowStock.slice(0, 8).forEach(function (s) { %>
+              <li style="display:flex;align-items:center;gap:10px;padding:9px var(--space-4);border-bottom:1px solid var(--border)">
+                <span class="pill pill--<%= s.available <= 0 ? 'danger' : 'warn' %>"><%= s.available %></span>
+                <span style="flex:1 1 auto;min-width:0">
+                  <a href="/admin/produits/<%= s.product_id %>" style="font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= s.product_name %></a>
+                  <span class="tiny muted mono"><%= s.product_sku || s.sku || 'sans réf.' %><%= s.variant_options ? ' · ' + s.variant_options : '' %></span>
+                </span>
+                <span class="tiny muted">seuil <%= s.low_stock_threshold %></span>
+              </li>
+            <% }); %>
+          </ul>
+        <% } %>
+      </div>
+    </div>
+
+    <!-- ---------------- Dernier import ---------------- -->
+    <div class="panel">
+      <div class="panel-head"><h2>Import</h2><a class="btn btn--sm btn--quiet" href="/admin/import">Ouvrir</a></div>
+      <div class="panel-body">
+        <% if (lastImport) { %>
+          <p style="margin-bottom:6px">
+            <strong><%= lastImport.filename %></strong>
+            <span class="pill pill--<%= lastImport.status === 'completed' ? 'success' : (lastImport.status === 'running' ? 'info' : 'warn') %>" style="margin-left:6px"><%= lastImport.status %></span>
+          </p>
+          <p class="tiny muted" style="margin:0">
+            <%= dates.formatDateTime(lastImport.created_at) %> ·
+            <%= lastImport.processed %>/<%= lastImport.total_rows %> ligne(s) ·
+            <%= lastImport.errors %> en erreur
+            <% if (lastImport.report && lastImport.report.ok != null) { %> · <%= lastImport.report.ok %> créée(s)/mise(s) à jour<% } %>
+          </p>
+        <% } else { %>
+          <p class="tiny muted" style="margin:0">
+            Aucun import pour l’instant. Le modèle téléchargeable (.xlsx ou .csv) contient 28 colonnes
+            et trois lignes d’exemple.
+          </p>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

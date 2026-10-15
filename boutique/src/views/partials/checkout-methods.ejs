@@ -1,0 +1,58 @@
+<%
+/**
+ * Liste des moyens de paiement proposés pour un mode et une zone donnés.
+ * Rendu côté serveur (aussi utilisé comme fragment AJAX) : un moyen désactivé,
+ * non configuré ou interdit pour la zone est affiché grisé avec la raison,
+ * jamais proposé comme choix valide.
+ */
+const list = methods || [];
+const chosen = (typeof selectedMethod !== 'undefined' && selectedMethod) ? selectedMethod : (list.find((m) => m.allowed) || {}).code || '';
+const initials = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+%>
+<% if (!list.length) { %>
+  <div class="alert alert--warn">
+    <%- icon('alert', 'md') %>
+    <div>
+      <strong>Aucun moyen de paiement disponible</strong>
+      <p style="margin:4px 0 0">La boutique n’a pas encore activé de moyen de paiement pour ce mode de réception.
+      Contactez-la pour finaliser votre commande.</p>
+    </div>
+  </div>
+<% } else { %>
+  <div class="option-grid" role="radiogroup" aria-label="Moyen de paiement">
+    <% list.forEach(function (m) { %>
+      <label class="option-card <%= m.allowed ? '' : 'is-disabled' %>" <%= m.allowed ? '' : 'aria-disabled="true"' %>>
+        <input type="radio" name="paiement" value="<%= m.code %>" <%= m.code === chosen ? 'checked' : '' %> <%= m.allowed ? 'required' : 'disabled' %>>
+        <span class="pay-logo" style="background:<%= m.color || 'var(--brand)' %>" aria-hidden="true">
+          <% if (m.logoKey) { %><img src="<%= mediaUrl(m.logoKey, 'thumb') %>" alt="" width="44" height="30" style="object-fit:contain"><% } else { %><%= initials(m.name) %><% } %>
+        </span>
+        <span style="flex:1 1 auto;min-width:0">
+          <span class="o-title"><%= m.name %></span>
+          <span class="o-meta">
+            <% if (m.kind === 'mobile_money') { %>Paiement mobile — vous validez sur votre téléphone<% } %>
+            <% if (m.kind === 'cash' && m.code === 'pay_at_pickup') { %>Vous réglez en boutique au moment du retrait<% } %>
+            <% if (m.kind === 'cash' && m.code === 'pay_on_delivery') { %>Vous réglez à la réception du colis<% } %>
+            <% if (m.kind === 'card') { %>Paiement par carte<% } %>
+            <% if (m.kind === 'other') { %>Autre moyen de paiement<% } %>
+          </span>
+          <% if (m.instructions) { %><span class="o-meta" style="display:block;margin-top:2px"><%= m.instructions %></span><% } %>
+          <% if (m.merchantRef) { %><span class="o-meta tiny" style="display:block">Référence marchand : <span class="mono"><%= m.merchantRef %></span></span><% } %>
+          <% if (m.simulated && m.stateKey === 'sandbox') { %>
+            <span class="pill pill--warn" style="margin-top:6px"><%- icon('info', 'xs') %> Mode démonstration — aucun débit réel</span>
+          <% } %>
+          <% if (!m.allowed && m.unavailableReason) { %>
+            <span class="pill pill--danger" style="margin-top:6px"><%= m.unavailableReason %></span>
+          <% } else if (m.stateKey === 'not_configured') { %>
+            <span class="pill pill--warn" style="margin-top:6px">Passerelle non encore connectée</span>
+          <% } %>
+        </span>
+      </label>
+    <% }); %>
+  </div>
+  <p class="tiny muted" style="margin-top:var(--space-3)">
+    <%- icon('shield', 'xs') %>
+    Un paiement n’est considéré comme reçu qu’après confirmation authentifiée du prestataire
+    (montant, devise et commande vérifiés côté serveur). Une capture d’écran ou un simple message ne suffit pas.
+    Aucune donnée de carte bancaire n’est saisie ni stockée sur ce site.
+  </p>
+<% } %>

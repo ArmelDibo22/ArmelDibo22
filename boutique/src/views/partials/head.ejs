@@ -1,0 +1,57 @@
+<%
+/**
+ * Contenu de la balise <head>.
+ * SEO local strict : uniquement des informations confirmées en administration.
+ * En démonstration ou hors production, les pages sont désindexées.
+ */
+const siteName = store.name || 'ETS LE PRIVILÈGE DAOUKRO';
+const siteShort = store.shortName || 'ETS LE PRIVILÈGE';
+const docTitle = (typeof title !== 'undefined' && title) ? `${title} · ${siteName}` : siteName;
+const docDesc = (typeof metaDescription !== 'undefined' && metaDescription)
+  ? metaDescription
+  : (store.tagline || `${siteName} — papeterie, informatique et téléphonie à ${store.city} (${store.region}). Retrait en boutique ou livraison.`).slice(0, 300);
+const canonicalUrl = (typeof canonical !== 'undefined' && canonical) ? new URL(canonical, config.publicUrl).href : null;
+const noIndex = Boolean((typeof noindex !== 'undefined' && noindex) || config.isDemo || config.env !== 'production');
+const primaryPhone = store.primary && store.primary.type === 'phone' ? store.primary.value : (store.phones[0] ? store.phones[0].value : '');
+const orgSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Store',
+  name: siteName,
+  alternateName: siteShort,
+  ...(store.addressConfirmed && store.address ? { address: store.address } : {}),
+  addressLocality: store.city,
+  addressRegion: store.region,
+  addressCountry: 'CI',
+  ...(primaryPhone ? { telephone: primaryPhone } : {}),
+  ...(store.mapsUrl ? { hasMap: store.mapsUrl } : {}),
+  ...(store.registration ? { identifier: store.registration } : {}),
+  currenciesAccepted: store.currency,
+  paymentAccepted: 'Mobile Money, espèces',
+  areaServed: [store.city, store.region, store.country],
+};
+%>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="generator" content="Boutique ETS LE PRIVILÈGE">
+<title><%= docTitle %></title>
+<meta name="description" content="<%= docDesc %>">
+<% if (noIndex) { %><meta name="robots" content="noindex, nofollow, noarchive"><% } else { %><meta name="robots" content="index, follow"><% } %>
+<% if (canonicalUrl) { %><link rel="canonical" href="<%= canonicalUrl %>"><% } %>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="<%= siteName %>">
+<meta property="og:title" content="<%= docTitle %>">
+<meta property="og:description" content="<%= docDesc %>">
+<% if (canonicalUrl) { %><meta property="og:url" content="<%= canonicalUrl %>"><% } %>
+<% if (typeof ogImage !== 'undefined' && ogImage) { %><meta property="og:image" content="<%= new URL(ogImage, config.publicUrl).href %>"><% } %>
+<meta name="theme-color" content="<%= theme.primary %>">
+<meta name="color-scheme" content="light">
+<meta name="format-detection" content="telephone=yes">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/favicon.svg">
+<link rel="manifest" href="/assets/site.webmanifest">
+<link rel="stylesheet" href="/assets/css/app.css">
+<% if (typeof adminCss !== 'undefined' && adminCss) { %><link rel="stylesheet" href="/assets/css/admin.css"><% } %>
+<style><%- theme.cssText %></style>
+<script type="application/ld+json"><%- JSON.stringify(orgSchema) %></script>
+<% if (typeof structuredData !== 'undefined' && structuredData) { %><script type="application/ld+json"><%- structuredData %></script><% } %>
+<meta name="csrf-token" content="<%= csrfToken %>">

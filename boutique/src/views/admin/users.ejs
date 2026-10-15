@@ -1,0 +1,234 @@
+<%
+/**
+ * Utilisateurs de l'espace d'administration et matrice des rôles.
+ *
+ * Deux rôles seulement : `admin` (accès complet) et `vendor` (catalogue,
+ * commandes, stock, caisse). La création, la modification et la suppression
+ * sont réservées au rôle administrateur côté serveur (`requireRole('admin')`) ;
+ * l'interface masque simplement les actions non autorisées.
+ */
+const userList = Array.isArray(users) ? users : [];
+const roleList = Array.isArray(roles) ? roles : [];
+// `users.PERMISSIONS` mappe chaque rôle vers un Set de droits.
+const perms = permissions || {};
+const permSet = (role) => (perms[role] instanceof Set ? perms[role] : new Set(Array.isArray(perms[role]) ? perms[role] : []));
+// La gestion des comptes exige le droit `users.write` ET le rôle administrateur
+// (contrôle identique côté serveur via requireRole('admin')).
+const writable = can('users.write') && Boolean(adminUser) && adminUser.role === 'admin';
+const activeAdmins = userList.filter((u) => u.role === 'admin' && u.active).length;
+const roleLabel = (r) => (roleList.find((x) => x.value === r) || {}).label || r;
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Utilisateurs</h1>
+    <p class="sub">
+      <%= userList.length %> compte(s) · <%= activeAdmins %> administrateur(s) actif(s) ·
+      <%= userList.filter((u) => u.role === 'vendor').length %> vendeur(s)
+    </p>
+  </div>
+  <% if (!writable) { %>
+    <span class="pill pill--info">Lecture seule — la gestion des comptes est réservée au rôle administrateur</span>
+  <% } %>
+</div>
+
+<div class="split split--2">
+  <div class="panel">
+    <div class="panel-head"><h2>Comptes</h2><span class="hint">Dernière connexion et sessions ouvertes</span></div>
+    <div class="panel-body panel-body--flush">
+      <% if (!userList.length) { %>
+        <p class="empty-row">Aucun compte. Le premier administrateur est créé par <code>npm run seed</code>.</p>
+      <% } else { %>
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Comptes d'administration</caption>
+            <thead>
+              <tr>
+                <th scope="col">Utilisateur</th>
+                <th scope="col">Rôle</th>
+                <th scope="col">Espèces</th>
+                <th scope="col">État</th>
+                <th scope="col">Dernière connexion</th>
+                <th scope="col" class="num">Sessions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% userList.forEach(function (u) { %>
+                <tr>
+                  <td>
+                    <strong><%= u.full_name || u.email %></strong>
+                    <span class="tiny muted" style="display:block"><%= u.email %></span>
+                    <% if (u.phone) { %><span class="tiny muted mono"><%= formatPhone(u.phone) %></span><% } %>
+                    <% if (adminUser && String(u.id) === String(adminUser.id)) { %><span class="pill pill--brand">vous</span><% } %>
+                  </td>
+                  <td><span class="pill pill--<%= u.role === 'admin' ? 'brand' : 'info' %>"><%= roleLabel(u.role) %></span></td>
+                  <td>
+                    <% if (u.can_confirm_cash) { %>
+                      <span class="pill pill--success"><%- icon('check', 'xs') %> habilité</span>
+                    <% } else { %>
+                      <span class="tiny muted">—</span>
+                    <% } %>
+                  </td>
+                  <td><span class="pill pill--<%= u.active ? 'success' : 'neutral' %>"><%= u.active ? 'Actif' : 'Désactivé' %></span></td>
+                  <td class="tiny"><%= u.last_login_at ? dates.formatDateTime(u.last_login_at) : 'Jamais connecté' %></td>
+                  <td class="num"><%= u.active_sessions || 0 %></td>
+                </tr>
+                <% if (writable) { %>
+                  <tr class="detail-row">
+                    <td colspan="6" style="background:var(--surface);padding:0 var(--space-4) var(--space-4)">
+                      <details>
+                        <summary style="cursor:pointer;padding:10px 0;font-weight:600;color:var(--brand)">Modifier ce compte</summary>
+                        <form method="post" action="/admin/utilisateurs/<%= u.id %>" style="padding-top:var(--space-3)">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                          <div class="form-grid">
+                            <div>
+                              <label for="u-email-<%= u.id %>">Adresse e-mail</label>
+                              <input id="u-email-<%= u.id %>" name="email" type="email" maxlength="200" value="<%= u.email %>" required>
+                            </div>
+                            <div>
+                              <label for="u-name-<%= u.id %>">Nom complet</label>
+                              <input id="u-name-<%= u.id %>" name="fullName" type="text" maxlength="160" value="<%= u.full_name || '' %>">
+                            </div>
+                            <div>
+                              <label for="u-phone-<%= u.id %>">Téléphone</label>
+                              <input id="u-phone-<%= u.id %>" name="phone" type="text" maxlength="40" value="<%= u.phone || '' %>" placeholder="07 00 00 00 00">
+                            </div>
+                            <div>
+                              <label for="u-role-<%= u.id %>">Rôle</label>
+                              <select id="u-role-<%= u.id %>" name="role">
+                                <% roleList.forEach(function (r) { %>
+                                  <option value="<%= r.value %>" <%= u.role === r.value ? 'selected' : '' %>><%= r.label %></option>
+                                <% }); %>
+                              </select>
+                            </div>
+                            <div class="span-2">
+                              <label for="u-pass-<%= u.id %>">Nouveau mot de passe</label>
+                              <input id="u-pass-<%= u.id %>" name="password" type="password" minlength="10" maxlength="200" autocomplete="new-password" placeholder="Laisser vide pour conserver l'actuel">
+                              <span class="field-help">10 caractères minimum. Les mots de passe sont hachés (jamais stockés en clair).</span>
+                            </div>
+                            <div class="span-2">
+                              <label class="check">
+                                <input type="checkbox" name="canConfirmCash" value="1" <%= u.can_confirm_cash ? 'checked' : '' %>>
+                                <span>Peut confirmer un encaissement en espèces</span>
+                              </label>
+                              <span class="field-help">Chaque confirmation d’encaissement est journalisée avec son auteur.</span>
+                              <label class="check">
+                                <input type="checkbox" name="active" value="1" <%= u.active ? 'checked' : '' %>>
+                                <span>Compte actif</span>
+                              </label>
+                            </div>
+                          </div>
+                          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:var(--space-3)">
+                            <button class="btn btn--sm" type="submit"><%- icon('check', 'sm') %> Enregistrer</button>
+                          </div>
+                        </form>
+                        <form method="post" action="/admin/utilisateurs/<%= u.id %>/supprimer" style="margin-top:var(--space-2)">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                          <button class="btn btn--sm btn--quiet" type="submit"
+                                  data-confirm="Supprimer définitivement le compte <%= u.email %> ? Le journal d'audit conserve la trace des actions passées.">
+                            <%- icon('trash', 'sm') %> Supprimer le compte
+                          </button>
+                        </form>
+                        <% if (u.role === 'admin' && activeAdmins <= 1) { %>
+                          <p class="field-help" style="color:var(--danger)">
+                            Dernier administrateur actif : le serveur refuse sa rétrogradation, sa désactivation
+                            ou sa suppression pour ne jamais laisser la boutique sans administration.
+                          </p>
+                        <% } %>
+                      </details>
+                    </td>
+                  </tr>
+                <% } %>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div>
+    <% if (writable) { %>
+      <div class="panel" style="margin-bottom:var(--space-4)">
+        <div class="panel-head"><h2>Nouveau compte</h2></div>
+        <div class="panel-body">
+          <form method="post" action="/admin/utilisateurs">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="field">
+              <label for="nu-email">Adresse e-mail <span class="required-mark" aria-hidden="true">*</span></label>
+              <input id="nu-email" name="email" type="email" required maxlength="200" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="nu-name">Nom complet</label>
+              <input id="nu-name" name="fullName" type="text" maxlength="160">
+            </div>
+            <div class="field">
+              <label for="nu-phone">Téléphone</label>
+              <input id="nu-phone" name="phone" type="text" maxlength="40" placeholder="07 00 00 00 00">
+            </div>
+            <div class="field">
+              <label for="nu-pass">Mot de passe <span class="required-mark" aria-hidden="true">*</span></label>
+              <input id="nu-pass" name="password" type="password" required minlength="10" maxlength="200" autocomplete="new-password">
+              <span class="field-help">10 caractères minimum. À communiquer hors ligne puis à faire changer.</span>
+            </div>
+            <div class="field">
+              <label for="nu-role">Rôle</label>
+              <select id="nu-role" name="role">
+                <% roleList.forEach(function (r) { %>
+                  <option value="<%= r.value %>" <%= r.value === 'vendor' ? 'selected' : '' %>><%= r.label %> — <%= r.description %></option>
+                <% }); %>
+              </select>
+            </div>
+            <label class="check"><input type="checkbox" name="canConfirmCash" value="1"> Peut confirmer un encaissement en espèces</label>
+            <label class="check"><input type="checkbox" name="active" value="1" checked> Compte actif</label>
+            <button class="btn btn--block" type="submit" style="margin-top:var(--space-3)"><%- icon('plus', 'sm') %> Créer le compte</button>
+          </form>
+        </div>
+      </div>
+    <% } %>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Droits par rôle</h2><span class="hint">Contrôlés côté serveur</span></div>
+      <div class="panel-body panel-body--flush">
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Matrice des permissions par rôle</caption>
+            <thead>
+              <tr>
+                <th scope="col">Droit</th>
+                <% roleList.forEach(function (r) { %><th scope="col" class="center"><%= r.label %></th><% }); %>
+              </tr>
+            </thead>
+            <tbody>
+              <% const allPerms = Array.from(new Set(roleList.flatMap((r) => Array.from(permSet(r.value))))).sort(); %>
+              <% allPerms.forEach(function (p) { %>
+                <tr>
+                  <td class="mono tiny"><%= p %></td>
+                  <% roleList.forEach(function (r) { %>
+                    <td class="center">
+                      <% if (permSet(r.value).has(p)) { %>
+                        <span class="pill pill--success" title="Autorisé"><%- icon('check', 'xs') %><span class="visually-hidden">Autorisé</span></span>
+                      <% } else { %>
+                        <span class="tiny muted" title="Refusé">—<span class="visually-hidden">Refusé</span></span>
+                      <% } %>
+                    </td>
+                  <% }); %>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel-foot">
+        <p class="tiny muted" style="margin:0">
+          Le rôle <strong>vendeur</strong> ne peut pas rembourser, modifier les réglages ni gérer les comptes.
+          Un vendeur ne confirme les encaissements en espèces que si la case « habilité » est cochée.
+          Les contrôles sont appliqués par le serveur à chaque requête, jamais seulement masqués à l’écran.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

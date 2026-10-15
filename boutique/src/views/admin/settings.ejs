@@ -1,0 +1,1164 @@
+<%
+/**
+ * Réglages de la boutique, organisés en onglets.
+ *
+ * Principe : aucune information commerciale n'est codée en dur. Tout ce qui
+ * n'est pas encore confirmé (adresse, horaires, logo, tarifs de livraison,
+ * identifiants marchands) se règle ici, et reste signalé « à compléter »
+ * tant qu'il n'a pas été validé par l'exploitant.
+ */
+const w = can('settings.write');
+
+/** Valeur d'un réglage, avec repli sur la valeur par défaut du schéma. */
+function st(key) {
+  const v = all[key];
+  if (v === undefined || v === null || v === '') {
+    return schema[key] && schema[key].default !== undefined ? schema[key].default : '';
+  }
+  return v;
+}
+/** Valeur à ré-afficher après une erreur de validation. */
+function field(name, key) {
+  if (values && Object.prototype.hasOwnProperty.call(values, name)) return values[name];
+  return key ? st(key) : '';
+}
+function err(name) { return errors && errors[name] ? errors[name] : ''; }
+
+const contactsList = Array.isArray(st('store.contacts')) ? st('store.contacts') : [];
+const hoursList = Array.isArray(st('store.hours')) ? st('store.hours') : [];
+
+const zoneKinds = [
+  ['pickup', 'Retrait en boutique'],
+  ['local', 'Livraison locale (ville)'],
+  ['region', 'Livraison régionale'],
+  ['national', 'Livraison nationale'],
+  ['international', 'Livraison internationale'],
+];
+const zoneList = Array.isArray(zones) ? zones : [];
+const carrierList = Array.isArray(carriers) ? carriers : [];
+const rateMap = rates || {};
+const methodList = Array.isArray(methods) ? methods : [];
+const pageList = Array.isArray(pages) ? pages : [];
+const tabList = Array.isArray(tabs) ? tabs : [];
+
+const themeKeys = [
+  ['primary', 'Couleur principale (bleu marine)'],
+  ['primary_dark', 'Principale — foncée'],
+  ['primary_soft', 'Principale — fond clair'],
+  ['accent', 'Accent (or)'],
+  ['accent_soft', 'Accent — fond clair'],
+  ['ink', 'Couleur du texte'],
+  ['background', 'Fond de page'],
+  ['surface', 'Fond des blocs'],
+  ['border', 'Bordures'],
+];
+
+const pendingCount = checklist.filter((c) => !c.done).length;
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Réglages</h1>
+    <p class="sub">
+      Configuration de la boutique. Les éléments non confirmés apparaissent dans la
+      liste de mise en route<% if (pendingCount) { %> — <strong><%= pendingCount %> restant(s)</strong><% } %>.
+    </p>
+  </div>
+  <% if (!w) { %>
+    <span class="pill pill--info">Lecture seule — votre rôle ne permet pas de modifier les réglages</span>
+  <% } %>
+</div>
+
+<nav class="tabs" aria-label="Onglets de réglages">
+  <% tabList.forEach(function (t) { %>
+    <a href="/admin/reglages?onglet=<%= t.key %>" <%- t.key === tab ? 'aria-current="page"' : '' %>><%= t.label %></a>
+  <% }); %>
+  <a href="/admin/reglages/paiements/notifications" <%- tab === 'webhooks' ? 'aria-current="page"' : '' %>>Notifications de paiement</a>
+</nav>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'etablissement') { %>
+<div class="split split--2">
+  <form method="post" action="/admin/reglages/etablissement" enctype="multipart/form-data" class="panel">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div class="panel-head">
+      <h2>Établissement</h2>
+      <span class="hint">Nom, ville, adresse, horaires, logo</span>
+    </div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="span-2">
+          <label for="store_name">Nom officiel <span class="required-mark" aria-hidden="true">*</span></label>
+          <input id="store_name" name="store_name" type="text" required maxlength="200" value="<%= field('store_name', 'store.name') %>">
+          <% if (err('store_name')) { %><span class="field-error"><%= err('store_name') %></span><% } %>
+        </div>
+        <div>
+          <label for="store_short_name">Nom court</label>
+          <input id="store_short_name" name="store_short_name" type="text" maxlength="120" value="<%= field('store_short_name', 'store.short_name') %>">
+          <span class="field-help">Affiché dans l’en-tête et sur mobile.</span>
+        </div>
+        <div>
+          <label for="store_tagline">Signature</label>
+          <input id="store_tagline" name="store_tagline" type="text" maxlength="200" value="<%= field('store_tagline', 'store.tagline') %>">
+        </div>
+        <div>
+          <label for="store_city">Ville <span class="required-mark" aria-hidden="true">*</span></label>
+          <input id="store_city" name="store_city" type="text" required maxlength="120" value="<%= field('store_city', 'store.city') %>">
+          <% if (err('store_city')) { %><span class="field-error"><%= err('store_city') %></span><% } %>
+        </div>
+        <div>
+          <label for="store_region">Région</label>
+          <input id="store_region" name="store_region" type="text" maxlength="120" value="<%= field('store_region', 'store.region') %>">
+        </div>
+        <div>
+          <label for="store_country">Pays</label>
+          <input id="store_country" name="store_country" type="text" maxlength="120" value="<%= field('store_country', 'store.country') %>">
+        </div>
+        <div>
+          <label for="store_country_code">Code pays</label>
+          <input id="store_country_code" name="store_country_code" type="text" maxlength="4" value="<%= field('store_country_code', 'store.country_code') %>">
+          <span class="field-help">2 lettres (CI) ou indicatif téléphonique.</span>
+        </div>
+
+        <div class="span-2">
+          <label for="store_address">Adresse précise</label>
+          <textarea id="store_address" name="store_address" rows="2" maxlength="300" placeholder="À compléter après vérification sur place ou sur la fiche Google Maps"><%= field('store_address', 'store.address') %></textarea>
+          <label class="check">
+            <input type="checkbox" name="store_address_confirmed" value="1" <%= st('store.address_confirmed') ? 'checked' : '' %>>
+            <span>J’ai vérifié cette adresse : elle peut être publiée.</span>
+          </label>
+          <span class="field-help">
+            Tant que la case n’est pas cochée, le site n’affiche aucune adresse inventée :
+            seule la ville et la région sont mentionnées.
+          </span>
+          <% if (err('store_address')) { %><span class="field-error"><%= err('store_address') %></span><% } %>
+        </div>
+
+        <div class="span-2">
+          <label for="store_maps_url">Lien Google Maps</label>
+          <input id="store_maps_url" name="store_maps_url" type="url" maxlength="600" value="<%= field('store_maps_url', 'store.maps_url') %>">
+          <% if (err('store_maps_url')) { %><span class="field-error"><%= err('store_maps_url') %></span><% } %>
+        </div>
+        <div>
+          <label for="store_maps_lat">Latitude</label>
+          <input id="store_maps_lat" name="store_maps_lat" type="text" inputmode="decimal" maxlength="20" value="<%= field('store_maps_lat', 'store.maps_lat') %>">
+        </div>
+        <div>
+          <label for="store_maps_lng">Longitude</label>
+          <input id="store_maps_lng" name="store_maps_lng" type="text" inputmode="decimal" maxlength="20" value="<%= field('store_maps_lng', 'store.maps_lng') %>">
+          <span class="field-help">Coordonnées utilisées pour le plan d’accès.</span>
+        </div>
+
+        <div class="span-2">
+          <label for="store_registration">Immatriculation / RCCM</label>
+          <input id="store_registration" name="store_registration" type="text" maxlength="120" value="<%= field('store_registration', 'store.registration') %>">
+          <span class="field-help">Facultatif. Affiché en pied de page si renseigné.</span>
+        </div>
+
+        <div class="span-2">
+          <label for="ui_home_intro">Texte d’accueil</label>
+          <textarea id="ui_home_intro" name="ui_home_intro" rows="3" maxlength="600" placeholder="Phrase courte présentée en haut de la page d’accueil"><%= field('ui_home_intro', 'ui.home_intro') %></textarea>
+          <span class="field-help">
+            Pas de grande bannière décorative : ce texte reste court et laisse la place aux
+            catégories et aux articles.
+          </span>
+        </div>
+      </div>
+
+      <h3 class="block-title">Horaires d’ouverture</h3>
+      <div class="form-grid">
+        <div class="span-2">
+          <label for="store_hours_status">Statut des horaires</label>
+          <select id="store_hours_status" name="store_hours_status">
+            <option value="unconfirmed" <%= st('store.hours_status') === 'unconfirmed' ? 'selected' : '' %>>Non confirmés — ne pas publier</option>
+            <option value="confirmed" <%= st('store.hours_status') === 'confirmed' ? 'selected' : '' %>>Confirmés — affichables sur le site</option>
+          </select>
+          <span class="field-help">Aucun horaire n’est inventé : le site n’affiche rien tant que le statut est « non confirmés ».</span>
+        </div>
+      </div>
+
+      <div data-repeater>
+        <div class="repeater" data-repeater-list>
+          <% hoursList.forEach(function (h, i) { %>
+            <div class="repeater-row" data-repeater-row style="grid-template-columns:1.4fr 1fr 1fr 1.4fr auto">
+              <div>
+                <label>Jour</label>
+                <input type="text" name="hours[day][<%= i %>]" value="<%= h.day || '' %>" placeholder="Ex. : Lundi – Vendredi" data-index="hours-day">
+              </div>
+              <div>
+                <label>Ouverture</label>
+                <input type="text" name="hours[open][<%= i %>]" value="<%= h.open || '' %>" placeholder="08:00" data-index="hours-open">
+              </div>
+              <div>
+                <label>Fermeture</label>
+                <input type="text" name="hours[close][<%= i %>]" value="<%= h.close || '' %>" placeholder="18:00" data-index="hours-close">
+              </div>
+              <div>
+                <label>Note</label>
+                <input type="text" name="hours[note][<%= i %>]" value="<%= h.note || '' %>" placeholder="Ex. : fermé le dimanche" data-index="hours-note">
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <label class="check tiny" style="white-space:nowrap">
+                  <input type="checkbox" name="hours[closed][<%= i %>]" value="1" <%= h.closed ? 'checked' : '' %>> Fermé
+                </label>
+                <button class="rm" type="button" data-repeater-remove aria-label="Retirer cet horaire"><%- icon('trash', 'sm') %></button>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+        <template>
+          <div class="repeater-row" data-repeater-row style="grid-template-columns:1.4fr 1fr 1fr 1.4fr auto">
+            <div><label>Jour</label><input type="text" name="hours[day][0]" placeholder="Ex. : Samedi"></div>
+            <div><label>Ouverture</label><input type="text" name="hours[open][0]" placeholder="08:00"></div>
+            <div><label>Fermeture</label><input type="text" name="hours[close][0]" placeholder="18:00"></div>
+            <div><label>Note</label><input type="text" name="hours[note][0]"></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label class="check tiny" style="white-space:nowrap"><input type="checkbox" name="hours[closed][0]" value="1"> Fermé</label>
+              <button class="rm" type="button" data-repeater-remove aria-label="Retirer"><%- icon('trash', 'sm') %></button>
+            </div>
+          </div>
+        </template>
+        <div class="repeater-foot">
+          <button class="btn btn--sm btn--quiet" type="button" data-repeater-add><%- icon('plus', 'sm') %> Ajouter une plage horaire</button>
+          <span class="tiny muted" style="margin-left:8px"><span data-repeater-count><%= hoursList.length %></span> plage(s). Les lignes sans jour sont ignorées.</span>
+        </div>
+      </div>
+
+      <h3 class="block-title">Logo</h3>
+      <div class="split split--even">
+        <div>
+          <div class="admin-preview">
+            <div class="p-head">Aperçu actuel</div>
+            <div style="padding:var(--space-4);display:flex;align-items:center;gap:12px">
+              <% if (st('store.logo_key')) { %>
+                <img src="<%= mediaUrl(st('store.logo_key'), 'medium') %>" alt="Logo <%= store.name %>" width="96" height="96" style="object-fit:contain;background:var(--surface);border-radius:var(--radius)">
+                <div>
+                  <strong>Logo téléversé</strong>
+                  <p class="tiny muted" style="margin:4px 0 0">Statut : <%= st('store.logo_status') === 'official' ? 'officiel' : st('store.logo_status') === 'typographic' ? 'provisoire typographique' : st('store.logo_status') %></p>
+                </div>
+              <% } else { %>
+                <span class="brand-mark" style="width:64px;height:64px;font-size:1.4rem"><abbr title="<%= store.name %>" style="text-decoration:none"><%= (store.shortName || 'ETS').split(' ').filter(Boolean).slice(-2).map((x) => x[0]).join('') %></abbr></span>
+                <div>
+                  <strong>Marque typographique provisoire</strong>
+                  <p class="tiny muted" style="margin:4px 0 0">« ETS LE PRIVILÈGE » — remplaçable dès que le logo officiel est disponible.</p>
+                </div>
+              <% } %>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="field">
+            <label for="logo_file">Téléverser le logo officiel</label>
+            <input id="logo_file" name="image" type="file" accept="<%= config.allowedImageTypes.join(',') %>" <%= w ? '' : 'disabled' %>>
+            <span class="field-help">PNG, JPEG, WebP ou AVIF · <%= config.uploadLimitMb %> Mo maximum.</span>
+          </div>
+          <label class="check">
+            <input type="checkbox" name="logo_reset" value="1" <%= w ? '' : 'disabled' %>>
+            <span>Revenir à la marque typographique provisoire (supprime le logo téléversé)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <% if (w) { %>
+      <div class="panel-foot"><button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer l’établissement</button></div>
+    <% } %>
+  </form>
+
+  <div>
+    <div class="panel">
+      <div class="panel-head"><h2>Mise en route</h2><span class="hint"><%= checklist.filter((c) => c.done).length %>/<%= checklist.length %></span></div>
+      <div class="panel-body">
+        <ul class="checklist">
+          <% checklist.forEach(function (c) { %>
+            <li data-done="<%= c.done ? 'true' : 'false' %>">
+              <span class="box" aria-hidden="true"><% if (c.done) { %><%- icon('check', 'xs') %><% } %></span>
+              <span>
+                <span class="c-label"><%= c.label %></span>
+                <% if (c.hint) { %><span class="c-hint"><%= c.hint %></span><% } %>
+              </span>
+            </li>
+          <% }); %>
+        </ul>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Ce qui n’est jamais inventé</h2></div>
+      <div class="panel-body">
+        <ul class="tight muted">
+          <li>Une adresse non cochée « vérifiée » n’est pas affichée.</li>
+          <li>Des horaires « non confirmés » ne sont pas publiés.</li>
+          <li>Sans logo officiel, la marque typographique provisoire est utilisée.</li>
+          <li>Un numéro n’est proposé sur WhatsApp que si vous l’avez activé explicitement.</li>
+          <li>Un tarif de livraison inconnu donne « Livraison sur devis », jamais « Gratuit ».</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'contacts') { %>
+<form method="post" action="/admin/reglages/contacts">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <div class="split split--2">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Contacts</h2>
+        <span class="hint">Le contact principal est utilisé partout sur le site</span>
+      </div>
+      <div class="panel-body">
+        <div data-repeater>
+          <div class="repeater" data-repeater-list>
+            <% contactsList.forEach(function (c, i) { %>
+              <div class="repeater-row" data-repeater-row style="grid-template-columns:1fr 1fr 1.6fr auto">
+                <input type="hidden" name="contacts[id][<%= i %>]" value="<%= c.id || '' %>">
+                <div>
+                  <label>Type</label>
+                  <select name="contacts[type][<%= i %>]">
+                    <% [['phone','Téléphone'],['email','E-mail'],['address','Adresse'],['other','Autre']].forEach(function (o) { %>
+                      <option value="<%= o[0] %>" <%= (c.type || 'phone') === o[0] ? 'selected' : '' %>><%= o[1] %></option>
+                    <% }); %>
+                  </select>
+                </div>
+                <div>
+                  <label>Libellé</label>
+                  <input type="text" name="contacts[label][<%= i %>]" value="<%= c.label || '' %>" placeholder="Ex. : Téléphone boutique">
+                </div>
+                <div>
+                  <label>Valeur</label>
+                  <input type="text" name="contacts[value][<%= i %>]" value="<%= c.value || '' %>" placeholder="07 58 11 38 57">
+                  <% if (err('contact_' + i)) { %><span class="field-error"><%= err('contact_' + i) %></span><% } %>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;justify-content:center">
+                  <label class="check tiny"><input type="radio" name="contacts[is_primary]" value="<%= i %>" <%= c.is_primary ? 'checked' : '' %>> Principal</label>
+                  <label class="check tiny"><input type="checkbox" name="contacts[whatsapp_enabled][<%= i %>]" value="1" <%= c.whatsapp_enabled ? 'checked' : '' %>> WhatsApp</label>
+                  <label class="check tiny"><input type="checkbox" name="contacts[visible][<%= i %>]" value="1" <%= c.visible !== false ? 'checked' : '' %>> Visible</label>
+                </div>
+              </div>
+            <% }); %>
+          </div>
+          <template>
+            <div class="repeater-row" data-repeater-row style="grid-template-columns:1fr 1fr 1.6fr auto">
+              <input type="hidden" name="contacts[id][0]" value="">
+              <div><label>Type</label>
+                <select name="contacts[type][0]">
+                  <option value="phone">Téléphone</option><option value="email">E-mail</option>
+                  <option value="address">Adresse</option><option value="other">Autre</option>
+                </select>
+              </div>
+              <div><label>Libellé</label><input type="text" name="contacts[label][0]" placeholder="Ex. : Commandes"></div>
+              <div><label>Valeur</label><input type="text" name="contacts[value][0]" placeholder="07 00 00 00 00"></div>
+              <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;justify-content:center">
+                <label class="check tiny"><input type="radio" name="contacts[is_primary]" value="0"> Principal</label>
+                <label class="check tiny"><input type="checkbox" name="contacts[whatsapp_enabled][0]" value="1"> WhatsApp</label>
+                <label class="check tiny"><input type="checkbox" name="contacts[visible][0]" value="1" checked> Visible</label>
+              </div>
+            </div>
+          </template>
+          <div class="repeater-foot">
+            <button class="btn btn--sm btn--quiet" type="button" data-repeater-add><%- icon('plus', 'sm') %> Ajouter un contact</button>
+            <span class="tiny muted" style="margin-left:8px">Les lignes vides sont ignorées.</span>
+          </div>
+        </div>
+      </div>
+      <% if (w) { %>
+        <div class="panel-foot"><button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer les contacts</button></div>
+      <% } %>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>WhatsApp</h2><span class="hint">Jamais supposé : toujours explicite</span></div>
+      <div class="panel-body">
+        <label class="check">
+          <input type="checkbox" name="whatsapp_enabled" value="1" <%= st('whatsapp.enabled') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+          <span>Proposer un échange WhatsApp sur le site</span>
+        </label>
+        <p class="field-help">
+          Même activé, seuls les numéros cochés « WhatsApp » ci-contre sont proposés.
+          Ouvrir WhatsApp n’engage ni une commande ni un paiement : le client doit
+          toujours repasser par le tunnel de commande.
+        </p>
+        <div class="field">
+          <label for="whatsapp_prefill_mode">Message pré-rempli</label>
+          <select id="whatsapp_prefill_mode" name="whatsapp_prefill_mode" <%= w ? '' : 'disabled' %>>
+            <% [['question','Question libre'],['cart','Résumé du panier'],['order','Résumé d’une commande']].forEach(function (o) { %>
+              <option value="<%= o[0] %>" <%= st('whatsapp.prefill_mode') === o[0] ? 'selected' : '' %>><%= o[1] %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="whatsapp_disclaimer">Avertissement affiché</label>
+          <textarea id="whatsapp_disclaimer" name="whatsapp_disclaimer" rows="3" maxlength="400" <%= w ? '' : 'disabled' %>><%= st('whatsapp.disclaimer') %></textarea>
+        </div>
+        <div class="alert alert--info">
+          <%- icon('info', 'sm') %>
+          <span>
+            Le numéro communiqué par l’établissement (<strong><%= formatPhone(store.primary ? store.primary.value : '') || 'non renseigné' %></strong>)
+            est conservé comme contact supplémentaire si d’autres numéros fiables sont ajoutés.
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+<% } %>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'commerce') { %>
+<form method="post" action="/admin/reglages/commerce">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <div class="split split--even">
+    <div class="panel">
+      <div class="panel-head"><h2>Vente</h2></div>
+      <div class="panel-body">
+        <div class="form-grid">
+          <div>
+            <label for="currency">Devise</label>
+            <select id="currency" name="currency" <%= w ? '' : 'disabled' %>>
+              <option value="XOF" selected>XOF — franc CFA</option>
+            </select>
+            <span class="field-help">Seule devise acceptée : les montants sont des entiers, sans décimale.</span>
+          </div>
+          <div>
+            <label for="currency_label">Libellé affiché</label>
+            <input id="currency_label" name="currency_label" type="text" maxlength="12" value="<%= field('currency_label', 'commerce.currency_label') %>" <%= w ? '' : 'disabled' %>>
+          </div>
+          <div>
+            <label for="min_order_amount">Montant minimum de commande (FCFA)</label>
+            <input id="min_order_amount" name="min_order_amount" type="number" min="0" step="50" value="<%= field('min_order_amount', 'commerce.min_order_amount') %>" <%= w ? '' : 'disabled' %>>
+            <% if (err('min_order_amount')) { %><span class="field-error"><%= err('min_order_amount') %></span><% } %>
+          </div>
+          <div>
+            <label for="max_qty_per_line">Quantité maximale par ligne</label>
+            <input id="max_qty_per_line" name="max_qty_per_line" type="number" min="1" max="100000" value="<%= field('max_qty_per_line', 'commerce.max_qty_per_line') %>" <%= w ? '' : 'disabled' %>>
+            <% if (err('max_qty_per_line')) { %><span class="field-error"><%= err('max_qty_per_line') %></span><% } %>
+          </div>
+          <div>
+            <label for="order_prefix">Préfixe des références de commande</label>
+            <input id="order_prefix" name="order_prefix" type="text" maxlength="8" value="<%= field('order_prefix', 'commerce.order_prefix') %>" <%= w ? '' : 'disabled' %>>
+          </div>
+          <div>
+            <label for="pos_prefix">Préfixe des ventes en boutique</label>
+            <input id="pos_prefix" name="pos_prefix" type="text" maxlength="8" value="<%= field('pos_prefix', 'commerce.pos_prefix') %>" <%= w ? '' : 'disabled' %>>
+          </div>
+          <div class="span-2">
+            <label class="check">
+              <input type="checkbox" name="guest_checkout" value="1" <%= st('commerce.guest_checkout') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+              <span>Autoriser la commande sans compte client</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" name="email_required" value="1" <%= st('commerce.email_required') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+              <span>Exiger une adresse e-mail pour commander</span>
+            </label>
+            <span class="field-help">L’e-mail reste facultatif par défaut : nom et téléphone suffisent.</span>
+            <label class="check">
+              <input type="checkbox" name="marketing_consent_enabled" value="1" <%= st('commerce.marketing_consent_enabled') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+              <span>Proposer un consentement marketing distinct et facultatif</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Exploitation</h2></div>
+      <div class="panel-body">
+        <label class="check">
+          <input type="checkbox" name="ui_maintenance" value="1" <%= st('ui.maintenance') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+          <span>Mode maintenance — la boutique n’accepte plus de commande</span>
+        </label>
+        <div class="field">
+          <label for="ui_maintenance_message">Message de maintenance</label>
+          <textarea id="ui_maintenance_message" name="ui_maintenance_message" rows="2" maxlength="500" <%= w ? '' : 'disabled' %>><%= field('ui_maintenance_message', 'ui.maintenance_message') %></textarea>
+        </div>
+        <label class="check">
+          <input type="checkbox" name="ui_demo_banner" value="1" <%= st('ui.demo_banner') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+          <span>Afficher un bandeau « données de démonstration »</span>
+        </label>
+        <span class="field-help">À laisser activé sur toute base de test, pour qu’aucune confusion ne soit possible avec les données réelles.</span>
+
+        <h3 class="block-title">Sauvegardes automatiques</h3>
+        <label class="check">
+          <input type="checkbox" name="backup_auto_enabled" value="1" <%= st('backup.auto_enabled') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+          <span>Sauvegarder la base automatiquement</span>
+        </label>
+        <div class="field">
+          <label for="backup_retention">Nombre de sauvegardes conservées</label>
+          <input id="backup_retention" name="backup_retention" type="number" min="1" max="365" value="<%= field('backup_retention', 'backup.retention') %>" <%= w ? '' : 'disabled' %>>
+          <span class="field-help">Gestion manuelle et téléchargement : <a href="/admin/sauvegardes">Sauvegardes</a>.</span>
+        </div>
+      </div>
+      <% if (w) { %>
+        <div class="panel-foot"><button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer</button></div>
+      <% } %>
+    </div>
+  </div>
+</form>
+<% } %>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'apparence') { %>
+<form method="post" action="/admin/reglages/apparence">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <div class="split split--2">
+    <div class="panel" data-theme-panel>
+      <div class="panel-head">
+        <h2>Palette</h2>
+        <span class="hint">À aligner sur le logo officiel dès qu’il est disponible</span>
+      </div>
+      <div class="panel-body">
+        <div class="form-grid">
+          <% themeKeys.forEach(function (k) { %>
+            <div>
+              <label for="theme_<%= k[0] %>"><%= k[1] %></label>
+              <div class="swatch-row">
+                <input id="theme_<%= k[0] %>" name="theme_<%= k[0] %>" type="color" value="<%= st('theme.' + k[0]) %>" data-theme-var="<%= k[0] === 'primary' ? 'brand' : k[0] === 'primary_dark' ? 'brand-dark' : k[0] === 'primary_soft' ? 'brand-soft' : k[0] === 'background' ? 'bg' : k[0] %>" <%= w ? '' : 'disabled' %>>
+                <input type="text" name="theme_<%= k[0] %>_hex" value="<%= st('theme.' + k[0]) %>" class="mono" readonly tabindex="-1" aria-hidden="true" style="max-width:110px">
+              </div>
+              <% if (err('theme_' + k[0])) { %><span class="field-error"><%= err('theme_' + k[0]) %></span><% } %>
+            </div>
+          <% }); %>
+          <div>
+            <label for="theme_radius">Arrondi des coins (px)</label>
+            <input id="theme_radius" name="theme_radius" type="number" min="0" max="28" value="<%= st('theme.radius') %>" <%= w ? '' : 'disabled' %>>
+          </div>
+          <div>
+            <label for="theme_density">Densité d’affichage</label>
+            <select id="theme_density" name="theme_density" <%= w ? '' : 'disabled' %>>
+              <option value="comfortable" <%= st('theme.density') === 'comfortable' ? 'selected' : '' %>>Confortable</option>
+              <option value="compact" <%= st('theme.density') === 'compact' ? 'selected' : '' %>>Compacte</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <% if (w) { %>
+        <div class="panel-foot sticky-actions">
+          <button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer l’apparence</button>
+          <button class="btn btn--quiet" type="submit" name="theme_reset" value="1" data-confirm="Réinitialiser la palette aux couleurs par défaut ?"><%- icon('refresh', 'sm') %> Réinitialiser</button>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Aperçu</h2></div>
+      <div class="panel-body">
+        <div class="admin-preview" data-theme-preview>
+          <div class="p-head">Aperçu en direct des couleurs saisies</div>
+          <div style="padding:var(--space-4)">
+            <div class="card" style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--bg)">
+              <div style="aspect-ratio:4/3;background:var(--surface);display:grid;place-items:center;color:var(--ink-3)">
+                <%- icon('image', 'lg') %>
+              </div>
+              <div style="padding:12px">
+                <p class="tiny muted" style="margin:0">Papeterie et fournitures scolaires</p>
+                <strong style="color:var(--ink)">Cahier 200 pages — exemple</strong>
+                <p style="margin:6px 0 10px;font-weight:700;color:var(--brand)">1 500 FCFA</p>
+                <span class="btn btn--sm" style="background:var(--accent);border-color:var(--accent);color:#fff">Ajouter au panier</span>
+                <span class="btn btn--sm btn--ghost" style="color:var(--brand);border-color:var(--border)">Détails</span>
+              </div>
+            </div>
+            <p class="tiny muted" style="margin-top:12px">
+              L’aperçu est purement local : rien n’est enregistré avant validation du formulaire.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+<% } %>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'livraison') { %>
+<form method="post" action="/admin/reglages/livraison" class="panel" style="margin-bottom:var(--space-4)">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <div class="panel-head"><h2>Textes affichés au client</h2><span class="hint">Retrait, devis, confirmation des tarifs</span></div>
+  <div class="panel-body">
+    <div class="form-grid">
+      <div class="span-2">
+        <label for="pickup_note">Note de retrait en boutique</label>
+        <textarea id="pickup_note" name="pickup_note" rows="2" maxlength="600" <%= w ? '' : 'disabled' %>><%= st('shipping.pickup_note') %></textarea>
+      </div>
+      <div class="span-2">
+        <label for="quote_note">Note « Livraison sur devis »</label>
+        <textarea id="quote_note" name="quote_note" rows="3" maxlength="800" <%= w ? '' : 'disabled' %>><%= st('shipping.quote_note') %></textarea>
+        <span class="field-help">
+          Explique qu’aucun frais inconnu n’est présenté comme gratuit : la commande est bloquée
+          jusqu’à l’accord du client sur le montant proposé.
+        </span>
+      </div>
+      <div class="span-2">
+        <label class="check">
+          <input type="checkbox" name="rates_confirmed" value="1" <%= st('shipping.rates_confirmed') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+          <span>Les tarifs de livraison ci-dessous sont confirmés et applicables</span>
+        </label>
+      </div>
+    </div>
+  </div>
+  <% if (w) { %>
+    <div class="panel-foot"><button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer les textes</button></div>
+  <% } %>
+</form>
+
+<div class="split split--2">
+  <div>
+    <div class="panel" id="zones">
+      <div class="panel-head">
+        <h2>Zones de retrait et de livraison</h2>
+        <span class="hint"><%= zoneList.length %> zone(s)</span>
+      </div>
+      <div class="panel-body panel-body--flush">
+        <% zoneList.forEach(function (z) { %>
+          <details class="zone-item" <%= z.requires_quote ? '' : 'open' %>>
+            <summary>
+              <strong><%= z.name %></strong>
+              <span class="mono tiny muted"><%= z.code %></span>
+              <span class="pill pill--<%= z.enabled ? 'success' : 'neutral' %>"><%= z.enabled ? 'Active' : 'Inactive' %></span>
+              <% if (z.requires_quote) { %><span class="pill pill--warn">Sur devis</span><% } %>
+              <% if (z.kind === 'pickup') { %><span class="pill pill--info">Retrait</span><% } %>
+            </summary>
+            <form method="post" action="/admin/reglages/livraison/zones" style="padding:var(--space-3) var(--space-4);border-top:1px solid var(--border)">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <input type="hidden" name="id" value="<%= z.id %>">
+              <div class="form-grid">
+                <div>
+                  <label>Code</label>
+                  <input type="text" name="code" value="<%= z.code %>" maxlength="60" required <%= w ? '' : 'disabled' %>>
+                  <span class="field-help">Identifiant technique stable (utilisé par les moyens de paiement).</span>
+                </div>
+                <div>
+                  <label>Nom affiché</label>
+                  <input type="text" name="name" value="<%= z.name %>" maxlength="160" required <%= w ? '' : 'disabled' %>>
+                </div>
+                <div>
+                  <label>Type</label>
+                  <select name="kind" <%= w ? '' : 'disabled' %>>
+                    <% zoneKinds.forEach(function (k) { %>
+                      <option value="<%= k[0] %>" <%= z.kind === k[0] ? 'selected' : '' %>><%= k[1] %></option>
+                    <% }); %>
+                  </select>
+                </div>
+                <div>
+                  <label>Ordre d’affichage</label>
+                  <input type="number" name="position" value="<%= z.position %>" min="0" max="999" <%= w ? '' : 'disabled' %>>
+                </div>
+                <div>
+                  <label>Gratuité à partir de (FCFA)</label>
+                  <input type="number" name="free_over" value="<%= z.free_over == null ? '' : money.plain(z.free_over) %>" min="0" step="50" placeholder="vide = jamais gratuit" <%= w ? '' : 'disabled' %>>
+                </div>
+                <div>
+                  <label>Transporteur par défaut</label>
+                  <select name="default_carrier_id" <%= w ? '' : 'disabled' %>>
+                    <option value="">— Aucun —</option>
+                    <% carrierList.forEach(function (c) { %>
+                      <option value="<%= c.id %>" <%= String(z.default_carrier_id) === String(c.id) ? 'selected' : '' %>><%= c.name %></option>
+                    <% }); %>
+                  </select>
+                </div>
+                <div class="span-2">
+                  <label>Délai affiché</label>
+                  <input type="text" name="eta_text" value="<%= z.eta_text || '' %>" maxlength="200" <%= w ? '' : 'disabled' %>>
+                </div>
+                <div class="span-2">
+                  <label>Conditions</label>
+                  <textarea name="conditions_text" rows="2" maxlength="600" <%= w ? '' : 'disabled' %>><%= z.conditions_text || '' %></textarea>
+                </div>
+                <div class="span-2">
+                  <label class="check"><input type="checkbox" name="enabled" value="1" <%= z.enabled ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Zone active</label>
+                  <label class="check"><input type="checkbox" name="cod_allowed" value="1" <%= z.cod_allowed ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Paiement à la remise autorisé dans cette zone</label>
+                  <label class="check"><input type="checkbox" name="requires_quote" value="1" <%= z.requires_quote ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Frais établis sur devis (aucun tarif automatique)</label>
+                  <span class="field-help">
+                    Sans tarif applicable et sans cette case, la commande passe automatiquement « sur devis » :
+                    un frais inconnu n’est jamais affiché comme gratuit.
+                  </span>
+                </div>
+              </div>
+              <% if (w) { %>
+                <div style="display:flex;gap:8px;margin-top:var(--space-3);flex-wrap:wrap">
+                  <button class="btn btn--sm" type="submit"><%- icon('check', 'sm') %> Enregistrer la zone</button>
+                </div>
+              <% } %>
+            </form>
+            <% if (w) { %>
+              <form method="post" action="/admin/reglages/livraison/zones/<%= z.id %>/supprimer" style="padding:0 var(--space-4) var(--space-3)">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm btn--quiet" type="submit" data-confirm="Supprimer la zone « <%= z.name %> » ? Les commandes existantes conservent leur historique."><%- icon('trash', 'sm') %> Supprimer la zone</button>
+              </form>
+            <% } %>
+          </details>
+        <% }); %>
+
+        <% if (w) { %>
+          <form method="post" action="/admin/reglages/livraison/zones" style="padding:var(--space-4);border-top:1px solid var(--border)">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <h3 class="block-title">Nouvelle zone</h3>
+            <div class="form-grid">
+              <div><label>Code</label><input type="text" name="code" required maxlength="60" placeholder="ex. : bongouanou"></div>
+              <div><label>Nom affiché</label><input type="text" name="name" required maxlength="160" placeholder="ex. : Livraison Bongouanou"></div>
+              <div>
+                <label>Type</label>
+                <select name="kind">
+                  <% zoneKinds.forEach(function (k) { %><option value="<%= k[0] %>"><%= k[1] %></option><% }); %>
+                </select>
+              </div>
+              <div><label>Ordre</label><input type="number" name="position" value="<%= zoneList.length + 1 %>" min="0" max="999"></div>
+              <div class="span-2">
+                <label class="check"><input type="checkbox" name="enabled" value="1" checked> Zone active</label>
+                <label class="check"><input type="checkbox" name="requires_quote" value="1"> Frais établis sur devis</label>
+              </div>
+            </div>
+            <button class="btn btn--sm" type="submit" style="margin-top:var(--space-3)"><%- icon('plus', 'sm') %> Créer la zone</button>
+          </form>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="panel" id="tarifs">
+      <div class="panel-head"><h2>Tarifs de livraison</h2><span class="hint">Par zone, poids et montant</span></div>
+      <div class="panel-body panel-body--flush">
+        <% const allRates = zoneList.flatMap((z) => (rateMap[z.id] || []).map((r) => Object.assign({}, r, { zone_name: z.name }))); %>
+        <% if (!allRates.length) { %>
+          <p class="empty-row">
+            Aucun tarif enregistré. Les zones concernées restent « sur devis » : le client reçoit une
+            proposition de montant et doit l’accepter avant tout paiement.
+          </p>
+        <% } else { %>
+          <div class="scroll-x">
+            <table class="data compact">
+              <caption class="visually-hidden">Tarifs de livraison</caption>
+              <thead><tr><th scope="col">Zone</th><th scope="col">Libellé</th><th scope="col" class="num">Poids (g)</th><th scope="col" class="num">Sous-total</th><th scope="col" class="num">Prix</th><th scope="col" class="num">Par kg suppl.</th><th scope="col">État</th><th scope="col" class="right">Action</th></tr></thead>
+              <tbody>
+                <% allRates.forEach(function (r) { %>
+                  <tr>
+                    <td><%= r.zone_name %></td>
+                    <td><%= r.label || 'Tarif' %><% if (r.carrier_id) { %><span class="tiny muted"> · transporteur <%= r.carrier_id %></span><% } %></td>
+                    <td class="num mono tiny"><%= r.min_weight_g || 0 %> – <%= r.max_weight_g ? r.max_weight_g : '∞' %></td>
+                    <td class="num mono tiny"><%= r.min_subtotal ? money.plain(r.min_subtotal) : 0 %> – <%= r.max_subtotal ? money.plain(r.max_subtotal) : '∞' %></td>
+                    <td class="num"><%= money.format(r.price) %></td>
+                    <td class="num"><%= r.per_extra_kg ? money.format(r.per_extra_kg) : '—' %></td>
+                    <td><span class="pill pill--<%= r.enabled ? 'success' : 'neutral' %>"><%= r.enabled ? 'Actif' : 'Inactif' %></span></td>
+                    <td class="right">
+                      <% if (w) { %>
+                        <form method="post" action="/admin/reglages/livraison/tarifs/<%= r.id %>/supprimer" class="inline-form">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                          <button class="btn btn--sm btn--quiet" type="submit" data-confirm="Supprimer ce tarif ? La zone repassera « sur devis » pour les colis correspondants."><%- icon('trash', 'sm') %><span class="visually-hidden">Supprimer</span></button>
+                        </form>
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+
+        <% if (w) { %>
+          <form method="post" action="/admin/reglages/livraison/tarifs" style="padding:var(--space-4);border-top:1px solid var(--border)">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <h3 class="block-title">Nouveau tarif</h3>
+            <div class="form-grid form-grid--3">
+              <div>
+                <label for="rate_zone">Zone <span class="required-mark" aria-hidden="true">*</span></label>
+                <select id="rate_zone" name="zone_id" required>
+                  <% zoneList.forEach(function (z) { %><option value="<%= z.id %>"><%= z.name %></option><% }); %>
+                </select>
+              </div>
+              <div>
+                <label for="rate_label">Libellé</label>
+                <input id="rate_label" name="label" type="text" maxlength="120" placeholder="Ex. : Livraison moto Daoukro">
+              </div>
+              <div>
+                <label for="rate_carrier">Transporteur</label>
+                <select id="rate_carrier" name="carrier_id">
+                  <option value="">— Indifférent —</option>
+                  <% carrierList.forEach(function (c) { %><option value="<%= c.id %>"><%= c.name %></option><% }); %>
+                </select>
+              </div>
+              <div><label for="rate_price">Prix (FCFA) <span class="required-mark" aria-hidden="true">*</span></label><input id="rate_price" name="price" type="number" min="0" step="50" required value="0"></div>
+              <div><label for="rate_extra">Par kg supplémentaire (FCFA)</label><input id="rate_extra" name="per_extra_kg" type="number" min="0" step="50" value="0"></div>
+              <div><label for="rate_pos">Ordre</label><input id="rate_pos" name="position" type="number" min="0" max="999" value="0"></div>
+              <div><label for="rate_minw">Poids minimum (g)</label><input id="rate_minw" name="min_weight_g" type="number" min="0" value="0"></div>
+              <div><label for="rate_maxw">Poids maximum (g)</label><input id="rate_maxw" name="max_weight_g" type="number" min="0" placeholder="vide = sans limite"></div>
+              <div><label for="rate_mins">Sous-total minimum (FCFA)</label><input id="rate_mins" name="min_subtotal" type="number" min="0" step="50" value="0"></div>
+              <div><label for="rate_maxs">Sous-total maximum (FCFA)</label><input id="rate_maxs" name="max_subtotal" type="number" min="0" step="50" placeholder="vide = sans limite"></div>
+              <div class="span-2"><label for="rate_note">Note interne</label><input id="rate_note" name="note" type="text" maxlength="250"></div>
+              <div class="span-2">
+                <label class="check"><input type="checkbox" name="enabled" value="1" checked> Tarif actif</label>
+                <span class="field-help">Le premier tarif actif correspondant (zone, puis poids, puis sous-total) s’applique.</span>
+              </div>
+            </div>
+            <button class="btn btn--sm" type="submit" style="margin-top:var(--space-3)"><%- icon('plus', 'sm') %> Enregistrer le tarif</button>
+          </form>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="panel" id="transporteurs">
+      <div class="panel-head"><h2>Transporteurs</h2><span class="hint"><%= carrierList.length %> enregistré(s)</span></div>
+      <div class="panel-body panel-body--flush">
+        <% if (!carrierList.length) { %>
+          <p class="empty-row">Aucun transporteur. Vous pouvez en créer un dès qu’un prestataire est identifié (nom, contact, lien de suivi).</p>
+        <% } else { %>
+          <div class="scroll-x">
+            <table class="data compact">
+              <caption class="visually-hidden">Transporteurs</caption>
+              <thead><tr><th scope="col">Nom</th><th scope="col">Code</th><th scope="col">Contact</th><th scope="col">Suivi</th><th scope="col">État</th><th scope="col" class="right">Action</th></tr></thead>
+              <tbody>
+                <% carrierList.forEach(function (c) { %>
+                  <tr>
+                    <td><strong><%= c.name %></strong></td>
+                    <td class="mono tiny muted"><%= c.code || '—' %></td>
+                    <td class="tiny"><%= c.contact || '—' %></td>
+                    <td class="mono tiny"><%= c.tracking_url_template || '—' %></td>
+                    <td><span class="pill pill--<%= c.enabled ? 'success' : 'neutral' %>"><%= c.enabled ? 'Actif' : 'Inactif' %></span></td>
+                    <td class="right">
+                      <% if (w) { %>
+                        <form method="post" action="/admin/reglages/livraison/transporteurs/<%= c.id %>/supprimer" class="inline-form">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                          <button class="btn btn--sm btn--quiet" type="submit" data-confirm="Supprimer ce transporteur ?"><%- icon('trash', 'sm') %><span class="visually-hidden">Supprimer</span></button>
+                        </form>
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+        <% if (w) { %>
+          <form method="post" action="/admin/reglages/livraison/transporteurs" style="padding:var(--space-4);border-top:1px solid var(--border)">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <h3 class="block-title">Nouveau transporteur</h3>
+            <div class="form-grid">
+              <div><label for="c_name">Nom <span class="required-mark" aria-hidden="true">*</span></label><input id="c_name" name="name" type="text" required maxlength="160"></div>
+              <div><label for="c_code">Code</label><input id="c_code" name="code" type="text" maxlength="60" placeholder="ex. : moto-daoukro"></div>
+              <div><label for="c_contact">Contact</label><input id="c_contact" name="contact" type="text" maxlength="200" placeholder="Téléphone du livreur"></div>
+              <div><label for="c_pos">Ordre</label><input id="c_pos" name="position" type="number" min="0" max="999" value="0"></div>
+              <div class="span-2">
+                <label for="c_track">Modèle de lien de suivi</label>
+                <input id="c_track" name="tracking_url_template" type="text" maxlength="300" placeholder="https://transporteur.example/suivi?ref={ref}">
+                <span class="field-help"><code>{ref}</code> est remplacé par la référence de suivi saisie sur la commande.</span>
+              </div>
+              <div class="span-2"><label class="check"><input type="checkbox" name="enabled" value="1" checked> Transporteur actif</label></div>
+            </div>
+            <button class="btn btn--sm" type="submit" style="margin-top:var(--space-3)"><%- icon('plus', 'sm') %> Enregistrer</button>
+          </form>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="panel-head"><h2>Simulateur de frais</h2></div>
+      <div class="panel-body">
+        <form method="post" action="/admin/reglages/livraison/simuler" data-shipping-sim>
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field">
+            <label for="sim_zone">Zone</label>
+            <select id="sim_zone" name="zone_id">
+              <% zoneList.forEach(function (z) { %><option value="<%= z.id %>"><%= z.name %></option><% }); %>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sim_subtotal">Sous-total du panier (FCFA)</label>
+            <input id="sim_subtotal" name="subtotal" type="number" min="0" step="50" value="25000">
+          </div>
+          <div class="field">
+            <label for="sim_weight">Poids du colis (g)</label>
+            <input id="sim_weight" name="weight_g" type="number" min="0" step="50" value="1500">
+          </div>
+          <button class="btn btn--block" type="submit"><%- icon('truck', 'sm') %> Calculer</button>
+          <p class="field-help">Aucune donnée n’est enregistrée : c’est exactement le calcul vu par le client.</p>
+        </form>
+        <div data-shipping-sim-result aria-live="polite"></div>
+        <noscript>
+          <p class="field-help">
+            Sans JavaScript, le simulateur renvoie une réponse technique. Le calcul réel est
+            toujours effectué côté serveur lors de la commande.
+          </p>
+        </noscript>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Règles appliquées</h2></div>
+      <div class="panel-body">
+        <ul class="tight muted">
+          <li>Retrait en boutique à Daoukro : aucun frais.</li>
+          <li>Livraison Daoukro, région de l’Iffou, reste de la Côte d’Ivoire : tarif par zone.</li>
+          <li>Aucun tarif applicable → « Livraison sur devis » et attente de l’accord du client.</li>
+          <li>Le paiement à la remise n’est proposé que si la zone l’autorise.</li>
+          <li>Les frais sont recalculés côté serveur à chaque étape : jamais depuis le navigateur.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'paiements') { %>
+<div class="alert alert--warn" style="margin-bottom:var(--space-4)">
+  <%- icon('alert', 'sm') %>
+  <span>
+    <strong>Aucune passerelle de paiement n’est inventée.</strong>
+    Les moyens Mobile Money restent « non configurés » tant que les identifiants marchands ne sont
+    pas fournis par Wave, Orange Money, MTN MoMo et Moov Money. Un moyen non configuré ne peut être
+    activé qu’en mode démonstration, clairement signalé au client. Les secrets sont lus uniquement
+    côté serveur (fichier <code>.env</code>, jamais dans le code ni dans la page).
+  </span>
+</div>
+
+<div class="split split--side">
+  <div>
+    <% methodList.forEach(function (m) { %>
+      <% const envNames = providerEnvNames && providerEnvNames[m.code] ? providerEnvNames[m.code] : []; %>
+      <% const filled = m.credentials ? Object.values(m.credentials).filter((x) => String(x || '').trim()).length : 0; %>
+      <div class="panel" style="margin-bottom:var(--space-4)">
+        <div class="panel-head">
+          <h2 style="display:flex;align-items:center;gap:8px">
+            <span class="dot" style="background:<%= m.color || '#14294F' %>" aria-hidden="true"></span>
+            <%= m.name %>
+          </h2>
+          <span class="pill pill--<%= m.state.tone === 'ok' ? 'success' : m.state.tone === 'warn' ? 'warn' : m.state.tone === 'danger' ? 'danger' : 'neutral' %>"><%= m.state.label %></span>
+        </div>
+        <div class="panel-body">
+          <form method="post" action="/admin/reglages/paiements/<%= m.code %>">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="form-grid">
+              <div>
+                <label for="pm-name-<%= m.code %>">Nom affiché</label>
+                <input id="pm-name-<%= m.code %>" name="name" type="text" maxlength="120" value="<%= m.name %>" <%= w ? '' : 'disabled' %>>
+              </div>
+              <div>
+                <label for="pm-pos-<%= m.code %>">Ordre</label>
+                <input id="pm-pos-<%= m.code %>" name="position" type="number" min="0" max="99" value="<%= m.position %>" <%= w ? '' : 'disabled' %>>
+              </div>
+              <div>
+                <label for="pm-ref-<%= m.code %>">Référence marchande</label>
+                <input id="pm-ref-<%= m.code %>" name="merchant_ref" type="text" maxlength="120" value="<%= m.merchant_ref || '' %>" placeholder="Identifiant marchand public" <%= w ? '' : 'disabled' %>>
+                <span class="field-help">Jamais de clé secrète ici : les secrets restent dans le fichier <code>.env</code> du serveur.</span>
+              </div>
+              <div>
+                <label for="pm-color-<%= m.code %>">Couleur</label>
+                <div class="swatch-row">
+                  <input id="pm-color-<%= m.code %>" name="color" type="color" value="<%= m.color || '#14294F' %>" <%= w ? '' : 'disabled' %>>
+                </div>
+              </div>
+              <div class="span-2">
+                <label for="pm-instr-<%= m.code %>">Instructions affichées au client</label>
+                <textarea id="pm-instr-<%= m.code %>" name="instructions" rows="3" maxlength="600" <%= w ? '' : 'disabled' %>><%= m.instructions || '' %></textarea>
+              </div>
+              <div class="span-2">
+                <span class="field-label">Modes de réception acceptés</span>
+                <label class="check"><input type="checkbox" name="modes[]" value="pickup" <%= (m.modes || []).includes('pickup') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Retrait en boutique</label>
+                <label class="check"><input type="checkbox" name="modes[]" value="delivery" <%= (m.modes || []).includes('delivery') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Livraison</label>
+              </div>
+              <div class="span-2">
+                <span class="field-label">Zones autorisées (vide = toutes)</span>
+                <div style="display:flex;flex-wrap:wrap;gap:var(--space-3)">
+                  <% zoneList.forEach(function (z) { %>
+                    <label class="check tiny">
+                      <input type="checkbox" name="zone_codes[]" value="<%= z.code %>" <%= (m.zone_codes || []).includes(z.code) ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+                      <%= z.name %>
+                    </label>
+                  <% }); %>
+                </div>
+              </div>
+              <div class="span-2">
+                <label class="check">
+                  <input type="checkbox" name="enabled" value="1" <%= m.enabled ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+                  <span>Proposer ce moyen de paiement</span>
+                </label>
+                <label class="check">
+                  <input type="checkbox" name="simulated" value="1" <%= m.simulated ? 'checked' : '' %> <%= w ? '' : 'disabled' %>>
+                  <span>Mode démonstration (aucun encaissement réel — signalé au client)</span>
+                </label>
+                <% if (m.kind === 'mobile_money' && envNames.length) { %>
+                  <p class="field-help">
+                    Variables d’environnement attendues :
+                    <% envNames.forEach(function (n, i) { %><%= i ? ' · ' : '' %><code><%= n %></code><% }); %>
+                    —
+                    <% if (filled > 0) { %>
+                      <strong class="ok-text"><%= filled %> renseignée(s)</strong>.
+                    <% } else { %>
+                      <strong>aucune renseignée</strong> : le moyen reste non configuré et ne peut être
+                      activé qu’en démonstration.
+                    <% } %>
+                  </p>
+                <% } %>
+                <% if (m.kind === 'cash') { %>
+                  <p class="field-help">
+                    Encaissement en espèces : la commande passe « en attente de confirmation » et doit être
+                    validée par un utilisateur habilité (administrateur, ou vendeur avec le droit
+                    « confirmer les encaissements »). Chaque confirmation est journalisée.
+                  </p>
+                <% } %>
+              </div>
+            </div>
+            <% if (w) { %>
+              <div style="margin-top:var(--space-3)">
+                <button class="btn btn--sm" type="submit"><%- icon('check', 'sm') %> Enregistrer « <%= m.name %> »</button>
+              </div>
+            <% } %>
+          </form>
+        </div>
+      </div>
+    <% }); %>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="panel-head"><h2>Sécurité des encaissements</h2></div>
+      <div class="panel-body">
+        <ul class="tight muted">
+          <li>Un paiement n’est validé que par une <strong>notification serveur signée</strong> du prestataire.</li>
+          <li>Une capture d’écran, un message client ou la page de retour ne valident <strong>jamais</strong> un paiement.</li>
+          <li>Le montant, la devise et la commande concernée sont revérifiés à la réception.</li>
+          <li>Les notifications répétées sont dédupliquées : une commande ne peut être payée deux fois.</li>
+          <li>Statuts séparés : commande, paiement et livraison évoluent indépendamment.</li>
+          <li>Aucune donnée de carte bancaire n’est collectée ni stockée.</li>
+        </ul>
+        <a class="btn btn--sm btn--block" href="/admin/reglages/paiements/notifications" style="margin-top:var(--space-3)">
+          <%- icon('bell', 'sm') %> Journal des notifications
+        </a>
+        <% if (simulationEnabled) { %>
+          <a class="btn btn--sm btn--quiet btn--block" href="/paiements/simuler" style="margin-top:var(--space-2)">
+            <%- icon('wallet', 'sm') %> Passerelle de démonstration
+          </a>
+        <% } %>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Services à connecter</h2></div>
+      <div class="panel-body">
+        <p class="tiny muted" style="margin-top:0">Souscriptions à vérifier auprès de chaque prestataire (aucun service payant n’est souscrit ici) :</p>
+        <ul class="tight tiny">
+          <li>Wave — compte marchand</li>
+          <li>Orange Money — accès API marchand</li>
+          <li>MTN MoMo — clé de souscription</li>
+          <li>Moov Money — identifiants marchand</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'pages') { %>
+<div class="split split--side">
+  <div>
+    <% pageList.forEach(function (pg) { %>
+      <div class="panel" style="margin-bottom:var(--space-4)">
+        <div class="panel-head">
+          <h2><%= pg.title %></h2>
+          <span>
+            <span class="pill pill--<%= pg.published ? 'success' : 'neutral' %>"><%= pg.published ? 'Publiée' : 'Brouillon' %></span>
+            <% if (pg.needs_review) { %><span class="pill pill--warn">À valider</span><% } %>
+          </span>
+        </div>
+        <div class="panel-body">
+          <form method="post" action="/admin/reglages/pages/<%= pg.slug %>">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="field">
+              <label for="pg-title-<%= pg.slug %>">Titre</label>
+              <input id="pg-title-<%= pg.slug %>" name="title" type="text" maxlength="200" value="<%= pg.title %>" <%= w ? '' : 'disabled' %>>
+              <span class="field-help">Adresse : <a href="/informations/<%= pg.slug %>" target="_blank" rel="noopener"><code>/informations/<%= pg.slug %></code></a></span>
+            </div>
+            <div class="field">
+              <label for="pg-body-<%= pg.slug %>">Contenu</label>
+              <textarea id="pg-body-<%= pg.slug %>" name="body" rows="12" class="mono" <%= w ? '' : 'disabled' %>><%= pg.body || '' %></textarea>
+              <span class="field-help">
+                HTML simple autorisé (titres, paragraphes, listes, liens, gras). Le reste est filtré côté serveur.
+                Les mentions <code>{{À COMPLÉTER}}</code> signalent un texte à rédiger.
+              </span>
+            </div>
+            <div class="field">
+              <label for="pg-meta-<%= pg.slug %>">Description pour les moteurs de recherche</label>
+              <input id="pg-meta-<%= pg.slug %>" name="meta_description" type="text" maxlength="400" value="<%= pg.meta_description || '' %>" <%= w ? '' : 'disabled' %>>
+            </div>
+            <label class="check"><input type="checkbox" name="published" value="1" <%= pg.published ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Publiée</label>
+            <label class="check"><input type="checkbox" name="needs_review" value="1" <%= pg.needs_review ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Reste à valider juridiquement</label>
+            <span class="field-help">Décocher « à valider » confirme que le texte a été relu et approuvé.</span>
+            <% if (w) { %>
+              <div style="margin-top:var(--space-3)"><button class="btn btn--sm" type="submit"><%- icon('check', 'sm') %> Enregistrer la page</button></div>
+            <% } %>
+          </form>
+        </div>
+      </div>
+    <% }); %>
+  </div>
+
+  <div>
+    <% if (w) { %>
+      <div class="panel">
+        <div class="panel-head"><h2>Nouvelle page</h2></div>
+        <div class="panel-body">
+          <form method="post" action="/admin/reglages/pages">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="field"><label for="np-title">Titre</label><input id="np-title" name="title" type="text" required maxlength="200"></div>
+            <div class="field">
+              <label for="np-slug">Adresse</label>
+              <input id="np-slug" name="slug" type="text" maxlength="120" placeholder="générée depuis le titre si vide">
+            </div>
+            <div class="field"><label for="np-body">Contenu</label><textarea id="np-body" name="body" rows="6" class="mono"></textarea></div>
+            <div class="field"><label for="np-pos">Ordre dans le pied de page</label><input id="np-pos" name="position" type="number" min="0" max="99" value="<%= pageList.length + 1 %>"></div>
+            <label class="check"><input type="checkbox" name="published" value="1"> Publier immédiatement</label>
+            <button class="btn btn--block" type="submit" style="margin-top:var(--space-3)"><%- icon('plus', 'sm') %> Créer la page</button>
+            <p class="field-help">Une nouvelle page est toujours marquée « à valider ».</p>
+          </form>
+        </div>
+      </div>
+    <% } %>
+    <div class="panel">
+      <div class="panel-head"><h2>Textes fournis</h2></div>
+      <div class="panel-body">
+        <p class="tiny muted" style="margin-top:0">
+          Les pages légales sont livrées avec des mentions <code>{{À COMPLÉTER}}</code> : elles doivent être
+          relues, complétées et validées par l’établissement avant publication. Aucun texte juridique
+          définitif n’est inventé ici.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
+
+<% /* ================================================================== */ %>
+<% if (tab === 'notifications') { %>
+<form method="post" action="/admin/reglages/notifications" class="panel">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <div class="panel-head"><h2>Notifications</h2><span class="hint">Canaux et expéditeur</span></div>
+  <div class="panel-body">
+    <div class="form-grid">
+      <div class="span-2">
+        <label for="from_name">Nom d’expéditeur</label>
+        <input id="from_name" name="from_name" type="text" maxlength="120" value="<%= st('notifications.from_name') %>" <%= w ? '' : 'disabled' %>>
+      </div>
+      <div class="span-2">
+        <label class="check"><input type="checkbox" name="email_enabled" value="1" <%= st('notifications.email_enabled') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Notifications par e-mail</label>
+        <label class="check"><input type="checkbox" name="sms_enabled" value="1" <%= st('notifications.sms_enabled') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Notifications par SMS</label>
+        <label class="check"><input type="checkbox" name="whatsapp_enabled" value="1" <%= st('notifications.whatsapp_enabled') ? 'checked' : '' %> <%= w ? '' : 'disabled' %>> Notifications par WhatsApp</label>
+      </div>
+    </div>
+    <div class="alert alert--info">
+      <%- icon('info', 'sm') %>
+      <span>
+        <strong>État réel :</strong> aucun connecteur e-mail ni SMS n’est branché (aucun service payant
+        n’a été souscrit). Les messages sont pour l’instant écrits dans le journal et la file d’envoi
+        (<a href="/admin/etat">État technique</a>), prêts à être reliés à un prestataire choisi plus tard.
+        Ces cases préparent la configuration sans laisser croire qu’un envoi a déjà lieu.
+      </span>
+    </div>
+  </div>
+  <% if (w) { %>
+    <div class="panel-foot"><button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer</button></div>
+  <% } %>
+</form>
+<% } %>
+
+<%- include('/admin/partials/footer') %>

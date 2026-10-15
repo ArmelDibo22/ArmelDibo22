@@ -1,0 +1,209 @@
+<%
+/**
+ * État technique : diagnostic d'une installation en une page.
+ *
+ * Sert à répondre à trois questions : la base est-elle saine, le schéma est-il
+ * à jour, et qu'est-ce qui reste à connecter ? Aucune donnée client n'y est
+ * affichée ; les secrets ne sont jamais révélés, seulement leur présence.
+ */
+const integ = integrity || { ok: false, integrity: 'inconnue' };
+const migList = Array.isArray(migrations) ? migrations : [];
+const tableList = Array.isArray(tables) ? tables : [];
+const outboxList = Array.isArray(outbox) ? outbox : [];
+const resList = Array.isArray(reservations) ? reservations : [];
+const wh = webhookStats || {};
+const e = env || {};
+
+function fmtBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} o`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1).replace('.', ',')} Ko`;
+  if (v < 1024 * 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1).replace('.', ',')} Mo`;
+  return `${(v / 1024 / 1024 / 1024).toFixed(2).replace('.', ',')} Go`;
+}
+const totalRows = tableList.reduce((s, t) => s + Number(t.rows || 0), 0);
+const pendingOutbox = outboxList.filter((o) => o.status === 'pending' || o.status === 'retry').reduce((s, o) => s + Number(o.n || 0), 0);
+const activeReservations = resList.filter((r) => r.status === 'active').reduce((s, r) => s + Number(r.qty || 0), 0);
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>État technique</h1>
+    <p class="sub">Diagnostic de l’installation · environnement <strong><%= e.env %></strong><% if (e.demo) { %> · <strong style="color:var(--warn)">données de démonstration</strong><% } %></p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn btn--sm btn--quiet" href="/sante" target="_blank" rel="noopener"><%- icon('shield', 'sm') %> Sonde publique /sante</a>
+    <a class="btn btn--sm btn--quiet" href="/admin/sauvegardes"><%- icon('database', 'sm') %> Sauvegardes</a>
+    <a class="btn btn--sm btn--quiet" href="/admin/journal"><%- icon('list', 'sm') %> Journal</a>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi kpi--<%= integ.ok ? 'success' : 'danger' %>">
+    <div class="k-label">Base de données</div>
+    <div class="k-value"><%= integ.ok ? 'Intègre' : 'À vérifier' %></div>
+    <div class="k-sub"><%= migList.length %> migration(s) appliquée(s) · <%= fmtBytes(dbSize) %></div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">Contenu</div>
+    <div class="k-value"><%= totalRows %></div>
+    <div class="k-sub">lignes réparties sur <%= tableList.length %> tables</div>
+  </div>
+  <div class="kpi kpi--accent">
+    <div class="k-label">Médias</div>
+    <div class="k-value"><%= fmtBytes(mediaSize) %></div>
+    <div class="k-sub">Images et dérivés WebP sur disque</div>
+  </div>
+  <div class="kpi kpi--<%= e.webhookSecret ? 'success' : 'warn' %>">
+    <div class="k-label">Notifications de paiement</div>
+    <div class="k-value"><%= e.webhookSecret ? 'Signées' : 'Secret absent' %></div>
+    <div class="k-sub"><%= wh.total || 0 %> réception(s) · <%= wh.bad_signature || 0 %> signature(s) invalide(s)</div>
+  </div>
+</div>
+
+<div class="split split--even">
+  <div class="panel">
+    <div class="panel-head"><h2>Environnement</h2><span class="hint">Aucun secret affiché</span></div>
+    <div class="panel-body">
+      <dl class="kv">
+        <dt>Node.js</dt><dd class="mono"><%= e.node %></dd>
+        <dt>Environnement</dt><dd><%= e.env %><% if (e.demo) { %> <span class="pill pill--warn">démonstration</span><% } %></dd>
+        <dt>URL publique</dt><dd class="mono tiny" style="word-break:break-all"><%= e.publicUrl %></dd>
+        <dt>Proxy inverse</dt><dd><%= e.trustProxy ? 'pris en compte (TRUST_PROXY)' : 'non activé' %></dd>
+        <dt>Articles par page</dt><dd><%= e.pageSize %></dd>
+        <dt>Base</dt><dd class="mono tiny" style="word-break:break-all"><%= dbPath %></dd>
+        <dt>Secret applicatif</dt>
+        <dd>
+          <% if (config.env === 'production' && String(process.env.APP_SECRET || '').startsWith('change-me')) { %>
+            <span class="pill pill--danger">à changer immédiatement</span>
+          <% } else { %>
+            <span class="pill pill--success">défini</span>
+          <% } %>
+          <span class="tiny muted">valeur jamais affichée</span>
+        </dd>
+        <dt>Secret webhook</dt>
+        <dd><span class="pill pill--<%= e.webhookSecret ? 'success' : 'danger' %>"><%= e.webhookSecret ? 'défini' : 'absent' %></span>
+          <% if (!e.webhookSecret) { %><span class="tiny muted">indispensable avant tout encaissement réel</span><% } %></dd>
+        <dt>Passerelle de démo</dt>
+        <dd>
+          <span class="pill pill--<%= e.simulation ? 'warn' : 'neutral' %>"><%= e.simulation ? 'autorisée' : 'désactivée' %></span>
+          <% if (e.simulation) { %><span class="tiny muted">à désactiver en production (<code>PAYMENT_SIMULATION_ENABLED=false</code>)</span><% } %>
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Migrations</h2><span class="hint">Schéma versionné</span></div>
+    <div class="panel-body panel-body--flush">
+      <% if (!migList.length) { %>
+        <p class="empty-row">Aucune migration enregistrée — exécutez <code>npm run migrate</code>.</p>
+      <% } else { %>
+        <table class="data compact">
+          <caption class="visually-hidden">Migrations appliquées</caption>
+          <thead><tr><th scope="col">Version</th><th scope="col">Fichier</th><th scope="col">Appliquée le</th></tr></thead>
+          <tbody>
+            <% migList.forEach(function (m) { %>
+              <tr>
+                <td class="mono"><%= m.version %></td>
+                <td class="mono tiny muted"><%= m.name %></td>
+                <td class="tiny"><%= dates.formatDateTime(m.applied_at) %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+      <div style="padding:var(--space-3) var(--space-4);border-top:1px solid var(--border)">
+        <p class="tiny muted" style="margin:0">
+          Les migrations sont appliquées automatiquement au démarrage et ne reviennent jamais en arrière.
+          Ajoutez un nouveau fichier <code>src/db/migrations/000N_*.sql</code> pour faire évoluer le schéma.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split split--even">
+  <div class="panel">
+    <div class="panel-head"><h2>Files et réservations</h2><span class="hint">Traitement en arrière-plan</span></div>
+    <div class="panel-body">
+      <h3 class="block-title">File d’envoi (notifications)</h3>
+      <% if (!outboxList.length) { %>
+        <p class="tiny muted" style="margin:0">File vide. Aucun connecteur e-mail ou SMS n’est branché : les messages seraient journalisés ici.</p>
+      <% } else { %>
+        <table class="data compact">
+          <caption class="visually-hidden">État de la file d'envoi</caption>
+          <thead><tr><th scope="col">État</th><th scope="col" class="num">Messages</th></tr></thead>
+          <tbody>
+            <% outboxList.forEach(function (o) { %>
+              <tr>
+                <td><span class="pill pill--<%= o.status === 'sent' ? 'success' : o.status === 'failed' ? 'danger' : 'warn' %>"><%= o.status %></span></td>
+                <td class="num"><%= o.n %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+      <% if (pendingOutbox) { %>
+        <p class="field-help"><%= pendingOutbox %> message(s) en attente d’un connecteur.</p>
+      <% } %>
+
+      <h3 class="block-title">Réservations de stock</h3>
+      <% if (!resList.length) { %>
+        <p class="tiny muted" style="margin:0">
+          Aucune réservation en cours. Le stock est réservé pour une durée limitée
+          (panier, puis commande en attente de paiement) et libéré automatiquement à
+          expiration ou en cas d’annulation — ce qui empêche toute vente au-delà du stock réel.
+        </p>
+      <% } else { %>
+        <table class="data compact">
+          <caption class="visually-hidden">Réservations de stock par état</caption>
+          <thead><tr><th scope="col">État</th><th scope="col" class="num">Réservations</th><th scope="col" class="num">Quantités</th></tr></thead>
+          <tbody>
+            <% resList.forEach(function (r) { %>
+              <tr>
+                <td><span class="pill pill--<%= r.status === 'active' ? 'warn' : r.status === 'consumed' ? 'success' : 'neutral' %>"><%= r.status %></span></td>
+                <td class="num"><%= r.n %></td>
+                <td class="num"><%= r.qty %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+      <p class="field-help" style="margin-bottom:0">
+        Quantité réservée en cours : <strong><%= activeReservations %></strong> unité(s).
+        Le stock disponible affiché au client est toujours « quantité en main − quantité réservée ».
+      </p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Tables</h2><span class="hint"><%= tableList.length %> tables · <%= totalRows %> lignes</span></div>
+    <div class="panel-body panel-body--flush">
+      <div class="scroll-x" style="max-height:420px;overflow-y:auto">
+        <table class="data compact">
+          <caption class="visually-hidden">Nombre de lignes par table</caption>
+          <thead><tr><th scope="col">Table</th><th scope="col" class="num">Lignes</th></tr></thead>
+          <tbody>
+            <% tableList.forEach(function (t) { %>
+              <tr>
+                <td class="mono tiny"><%= t.name %></td>
+                <td class="num mono tiny"><%= t.rows %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:var(--space-3) var(--space-4);border-top:1px solid var(--border)">
+        <p class="tiny muted" style="margin:0">
+          SQLite en mode WAL : un seul fichier à sauvegarder, aucune limite codée en dur sur le nombre
+          d’articles. Les limites réelles dépendent de l’hébergement (espace disque, mémoire) et sont
+          documentées dans <code>docs/</code>.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

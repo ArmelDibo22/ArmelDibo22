@@ -1,0 +1,269 @@
+<%
+/**
+ * Statistiques de l'activité.
+ *
+ * Exigence métier : distinguer clairement les commandes reçues, les ventes
+ * réellement encaissées et les remboursements. Aucun indicateur n'est fusionné
+ * ni estimé : tout provient des tables `orders`, `payments` et `pos_sales`.
+ */
+const rangeLabel = from && to
+  ? `du ${dates.formatDate(dates.fromInput(from))} au ${dates.formatDate(dates.fromInput(to, { endOfDay: true }))}`
+  : `${days} derniers jours`;
+
+const seriesList = Array.isArray(series) ? series : [];
+const maxDay = seriesList.reduce((m, d) => Math.max(m, Number(d.ordersAmount || 0), Number(d.paidAmount || 0), Number(d.posAmount || 0)), 0);
+const topList = Array.isArray(topProducts) ? topProducts : [];
+const zoneList = Array.isArray(byZone) ? byZone : [];
+const payList = Array.isArray(byPayment) ? byPayment : [];
+const pc = productCounts || {};
+const fmtBytes = null;
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Statistiques</h1>
+    <p class="sub">Période analysée : <strong><%= rangeLabel %></strong></p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn btn--sm btn--quiet" href="/admin/statistiques/export.csv<%= from && to ? `?du=${encodeURIComponent(from)}&au=${encodeURIComponent(to)}` : `?jours=${days}` %>">
+      <%- icon('download', 'sm') %> Exporter en CSV
+    </a>
+    <a class="btn btn--sm btn--quiet" href="/admin/exports/commandes.csv"><%- icon('file', 'sm') %> Commandes</a>
+    <a class="btn btn--sm btn--quiet" href="/admin/exports/ventes.csv"><%- icon('file', 'sm') %> Ventes boutique</a>
+  </div>
+</div>
+
+<form method="get" action="/admin/statistiques" class="panel" style="margin-bottom:var(--space-4)">
+  <div class="panel-body">
+    <div class="form-grid form-grid--3">
+      <div>
+        <label for="f-du">Du</label>
+        <input id="f-du" name="du" type="date" value="<%= from || '' %>">
+      </div>
+      <div>
+        <label for="f-au">Au</label>
+        <input id="f-au" name="au" type="date" value="<%= to || '' %>">
+      </div>
+      <div>
+        <label for="f-jours">Ou les N derniers jours</label>
+        <input id="f-jours" name="jours" type="number" min="1" max="3650" value="<%= days %>">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:var(--space-3);flex-wrap:wrap">
+      <button class="btn btn--sm" type="submit"><%- icon('filter', 'sm') %> Appliquer</button>
+      <a class="btn btn--sm btn--quiet" href="/admin/statistiques?jours=7">7 jours</a>
+      <a class="btn btn--sm btn--quiet" href="/admin/statistiques?jours=30">30 jours</a>
+      <a class="btn btn--sm btn--quiet" href="/admin/statistiques?jours=90">90 jours</a>
+      <a class="btn btn--sm btn--quiet" href="/admin/statistiques?jours=365">12 mois</a>
+    </div>
+    <p class="field-help" style="margin-bottom:0">Si « Du » et « Au » sont renseignés, ils priment sur le nombre de jours.</p>
+  </div>
+</form>
+
+<div class="kpi-grid">
+  <div class="kpi">
+    <div class="k-label">Commandes reçues</div>
+    <div class="k-value"><%= totals.online.count %></div>
+    <div class="k-sub">Montant brut <%= money.format(totals.online.gross) %></div>
+  </div>
+  <div class="kpi kpi--success">
+    <div class="k-label">Ventes encaissées</div>
+    <div class="k-value"><%= money.format(totals.online.collected) %></div>
+    <div class="k-sub">Paiements confirmés en ligne</div>
+  </div>
+  <div class="kpi kpi--accent">
+    <div class="k-label">Ventes au comptoir</div>
+    <div class="k-value"><%= money.format(totals.counter.gross) %></div>
+    <div class="k-sub"><%= totals.counter.count %> vente(s) en boutique</div>
+  </div>
+  <div class="kpi kpi--danger">
+    <div class="k-label">Remboursements</div>
+    <div class="k-value"><%= money.format(totals.online.refunded) %></div>
+    <div class="k-sub">Déduits du net</div>
+  </div>
+  <div class="kpi kpi--warn">
+    <div class="k-label">Espèces à confirmer</div>
+    <div class="k-value"><%= money.format(totals.cashAwaiting.gross) %></div>
+    <div class="k-sub"><%= totals.cashAwaiting.count %> commande(s) en attente d’un utilisateur habilité</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">Total combiné</div>
+    <div class="k-value"><%= money.format(totals.combined.collected) %></div>
+    <div class="k-sub">En ligne + comptoir, net de remboursements : <%= money.format(totals.combined.collected - totals.combined.refunded) %></div>
+  </div>
+</div>
+
+<div class="split split--2">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Évolution quotidienne</h2>
+      <span class="hint"><%= seriesList.length %> jour(s)</span>
+    </div>
+    <div class="panel-body">
+      <% if (!seriesList.length || !maxDay) { %>
+        <p class="empty-row">
+          Aucune activité sur la période. Les jours sans vente restent affichés à zéro
+          lorsqu’il y a au moins une commande : aucun compteur artificiel n’est ajouté.
+        </p>
+      <% } %>
+      <% if (maxDay) { %>
+        <div class="spark" role="img" aria-label="Histogramme des commandes, des paiements encaissés et des ventes au comptoir par jour">
+          <% seriesList.forEach(function (d) { %>
+            <span class="bar" style="height:<%= Math.max(2, Math.round((Number(d.ordersAmount || 0) / maxDay) * 100)) %>%"
+                  data-label="<%= d.date %> · commandes <%= money.format(d.ordersAmount || 0) %>"></span>
+            <span class="bar bar--paid" style="height:<%= Math.max(2, Math.round((Number(d.paidAmount || 0) / maxDay) * 100)) %>%"
+                  data-label="<%= d.date %> · encaissé <%= money.format(d.paidAmount || 0) %>"></span>
+          <% }); %>
+        </div>
+        <div class="spark-legend">
+          <span><i style="background:var(--brand)"></i> Commandes reçues</span>
+          <span><i style="background:var(--success)"></i> Encaissé</span>
+        </div>
+      <% } %>
+
+      <div class="scroll-x" style="margin-top:var(--space-4)">
+        <table class="data compact">
+          <caption class="visually-hidden">Détail quotidien</caption>
+          <thead>
+            <tr>
+              <th scope="col">Jour</th>
+              <th scope="col" class="num">Commandes</th>
+              <th scope="col" class="num">Montant</th>
+              <th scope="col" class="num">Encaissé</th>
+              <th scope="col" class="num">Comptoir</th>
+              <th scope="col" class="num">Remboursé</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% seriesList.slice().reverse().forEach(function (d) { %>
+              <tr>
+                <td class="mono tiny"><%= d.date %></td>
+                <td class="num"><%= d.orders %></td>
+                <td class="num"><%= money.format(d.ordersAmount || 0) %></td>
+                <td class="num"><%= money.format(d.paidAmount || 0) %></td>
+                <td class="num"><%= money.format(d.posAmount || 0) %></td>
+                <td class="num"><%= d.refundsAmount ? money.format(d.refundsAmount) : '—' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:var(--space-4)">
+      <div class="panel-head"><h2>Paiements</h2></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>Encaissés</dt><dd><strong><%= money.format(paymentSummary.paid.amount) %></strong> · <%= paymentSummary.paid.count %> paiement(s)</dd>
+          <dt>En attente</dt><dd><%= money.format(paymentSummary.awaiting.amount) %> · <%= paymentSummary.awaiting.count %></dd>
+          <dt>Remboursés</dt><dd><%= money.format(paymentSummary.refunded.amount) %> · <%= paymentSummary.refunded.count %></dd>
+          <dt>Échoués</dt><dd><%= paymentSummary.failed.count %></dd>
+          <dt>Comptoir</dt><dd><%= posTotals.count %> vente(s) · <strong><%= posTotals.money %></strong><% if (posTotals.discount) { %> (remises <%= money.format(posTotals.discount) %>)<% } %></dd>
+        </dl>
+        <a class="btn btn--sm btn--quiet btn--block" href="/admin/reglages/paiements/notifications" style="margin-top:var(--space-3)">
+          <%- icon('bell', 'sm') %> Journal des notifications de paiement
+        </a>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:var(--space-4)">
+      <div class="panel-head"><h2>Catalogue</h2></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>Articles</dt><dd><%= pc.total || 0 %></dd>
+          <dt>Publiés</dt><dd><%= pc.published || 0 %></dd>
+          <dt>Brouillons</dt><dd><%= pc.draft || 0 %></dd>
+          <dt>Archivés</dt><dd><%= pc.archived || 0 %></dd>
+          <dt>Données non confirmées</dt><dd><%= pc.notConfirmed || 0 %></dd>
+          <dt>Sans image</dt><dd><%= pc.withoutImage || 0 %></dd>
+          <dt>Stock bas</dt><dd><%= pc.lowStock || 0 %></dd>
+          <dt>Rupture</dt><dd><%= pc.outOfStock || 0 %></dd>
+        </dl>
+        <a class="btn btn--sm btn--quiet btn--block" href="/admin/produits" style="margin-top:var(--space-3)"><%- icon('box', 'sm') %> Ouvrir le catalogue</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split split--even">
+  <div class="panel">
+    <div class="panel-head"><h2>Articles les plus vendus</h2><span class="hint">Hors commandes annulées</span></div>
+    <div class="panel-body panel-body--flush">
+      <% if (!topList.length) { %>
+        <p class="empty-row">Aucune vente sur la période.</p>
+      <% } else { %>
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Articles les plus vendus</caption>
+            <thead><tr><th scope="col">Article</th><th scope="col">Référence</th><th scope="col" class="num">Quantité</th><th scope="col" class="num">Montant</th></tr></thead>
+            <tbody>
+              <% topList.forEach(function (p) { %>
+                <tr>
+                  <td><%= p.name %></td>
+                  <td class="mono tiny muted"><%= p.sku || '—' %></td>
+                  <td class="num"><%= p.qty %></td>
+                  <td class="num"><%= money.format(p.amount || 0) %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Répartition</h2><span class="hint">Par zone puis par moyen de paiement</span></div>
+    <div class="panel-body panel-body--flush">
+      <% if (!zoneList.length && !payList.length) { %>
+        <p class="empty-row">Aucune donnée sur la période.</p>
+      <% } else { %>
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Répartition par zone de réception</caption>
+            <thead><tr><th scope="col">Zone</th><th scope="col">Mode</th><th scope="col" class="num">Commandes</th><th scope="col" class="num">Montant</th></tr></thead>
+            <tbody>
+              <% zoneList.forEach(function (z) { %>
+                <tr>
+                  <td><%= z.zone %></td>
+                  <td><span class="pill pill--info"><%= z.fulfillment_mode === 'pickup' ? 'Retrait' : 'Livraison' %></span></td>
+                  <td class="num"><%= z.n %></td>
+                  <td class="num"><%= money.format(z.amount || 0) %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+        <% if (payList.length) { %>
+          <div class="scroll-x" style="border-top:1px solid var(--border)">
+            <table class="data compact">
+              <caption class="visually-hidden">Répartition par moyen de paiement</caption>
+              <thead><tr><th scope="col">Moyen de paiement</th><th scope="col" class="num">Commandes</th><th scope="col" class="num">Montant encaissé</th></tr></thead>
+              <tbody>
+                <% payList.forEach(function (m) { %>
+                  <tr>
+                    <td><%= m.name || m.code %></td>
+                    <td class="num"><%= m.n %></td>
+                    <td class="num"><%= money.format(m.amount || 0) %></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<p class="tiny muted" style="margin-top:var(--space-4)">
+  Lecture des indicateurs : « commandes reçues » compte toute commande enregistrée, y compris en attente de
+  paiement ou sur devis ; « ventes encaissées » ne compte que les paiements confirmés par le prestataire ou
+  par un utilisateur habilité pour les espèces ; « remboursements » sont déduits du net. Les ventes au comptoir
+  proviennent de la caisse et sont comptées séparément.
+</p>
+
+<%- include('/admin/partials/footer') %>

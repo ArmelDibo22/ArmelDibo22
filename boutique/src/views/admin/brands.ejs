@@ -1,0 +1,76 @@
+<%
+/** Marques : création par saisie libre, archivage, compteur d'articles. */
+const list = brands || [];
+const withProducts = list.filter((b) => b.product_count > 0).length;
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Marques</h1>
+    <p class="sub"><%= list.length %> marque(s) enregistrée(s) · <%= withProducts %> utilisée(s) par des articles</p>
+  </div>
+</div>
+
+<div class="split split--side">
+  <div class="panel">
+    <div class="panel-head"><h2>Toutes les marques</h2><span class="hint">Archiver retire la marque des filtres sans supprimer les articles</span></div>
+    <div class="panel-body panel-body--flush">
+      <% if (!list.length) { %>
+        <p class="empty-row">
+          Aucune marque. Elles sont créées automatiquement lorsque vous renseignez le champ « Marque »
+          d’un article, ou manuellement ci-contre.
+        </p>
+      <% } else { %>
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Liste des marques</caption>
+            <thead><tr><th scope="col">Marque</th><th scope="col">Adresse web</th><th scope="col" class="num">Articles publiés</th><th scope="col">État</th><th scope="col" class="right">Actions</th></tr></thead>
+            <tbody>
+              <% list.forEach(function (b) { %>
+                <tr>
+                  <td><strong><%= b.name %></strong></td>
+                  <td class="mono tiny muted"><%= b.slug %></td>
+                  <td class="num"><%= b.product_count != null ? b.product_count : 0 %></td>
+                  <td><span class="pill pill--<%= b.archived ? 'neutral' : 'success' %>"><%= b.archived ? 'Archivée' : 'Active' %></span></td>
+                  <td class="right">
+                    <span class="row-actions">
+                      <a class="btn btn--sm btn--quiet" href="/admin/produits?marque=<%= b.id %>"><%- icon('box', 'xs') %><span class="visually-hidden">Articles de cette marque</span></a>
+                      <form method="post" action="/admin/marques/<%= b.id %>/archiver" style="display:inline">
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                        <button class="btn btn--sm btn--quiet" type="submit" title="<%= b.archived ? 'Réactiver' : 'Archiver' %>">
+                          <%- icon(b.archived ? 'refresh' : 'eye', 'xs') %>
+                          <span class="visually-hidden"><%= b.archived ? 'Réactiver' : 'Archiver' %></span>
+                        </button>
+                      </form>
+                    </span>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Nouvelle marque</h2></div>
+    <div class="panel-body">
+      <form method="post" action="/admin/marques">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="field">
+          <label for="brand-name">Nom <span class="required-mark" aria-hidden="true">*</span></label>
+          <input id="brand-name" name="name" type="text" required maxlength="120" list="marques-existantes" placeholder="Ex. : Samsung">
+          <datalist id="marques-existantes">
+            <% list.forEach(function (b) { %><option value="<%= b.name %>"></option><% }); %>
+          </datalist>
+          <span class="field-help">Si la marque existe déjà (même nom, casse ignorée), elle est simplement reprise.</span>
+        </div>
+        <button class="btn btn--block" type="submit"><%- icon('plus', 'sm') %> Enregistrer</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

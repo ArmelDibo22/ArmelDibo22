@@ -1,0 +1,208 @@
+<%
+/**
+ * Notifications de paiement reçues des prestataires (webhooks).
+ *
+ * Rappel du principe de sécurité : un paiement n'est jamais validé par la page
+ * de retour du client, une capture d'écran ou un message. Il l'est uniquement
+ * par une notification serveur dont la signature HMAC est vérifiée, dont le
+ * montant, la devise et la commande sont recontrôlés, et qui est dédupliquée.
+ */
+const eventList = Array.isArray(events) ? events : [];
+const s = stats || {};
+const n = (v) => (v === null || v === undefined ? 0 : Number(v));
+
+function statusToneOf(status) {
+  if (status === 'processed') return 'success';
+  if (status === 'duplicate') return 'info';
+  if (status === 'rejected') return 'danger';
+  if (status === 'ignored') return 'neutral';
+  return 'warn';
+}
+const statusLabels = {
+  processed: 'Traitée', duplicate: 'Doublon ignoré', rejected: 'Rejetée',
+  ignored: 'Ignorée', pending: 'En attente', failed: 'Échec',
+};
+function prettyPayload(payload) {
+  if (!payload) return '';
+  try { return JSON.stringify(JSON.parse(payload), null, 1).slice(0, 1200); }
+  catch { return String(payload).slice(0, 1200); }
+}
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Notifications de paiement</h1>
+    <p class="sub">Réceptions serveur, vérification de signature et déduplication</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn btn--sm btn--quiet" href="/admin/reglages?onglet=paiements"><%- icon('wallet', 'sm') %> Moyens de paiement</a>
+    <% if (simulationEnabled) { %>
+      <a class="btn btn--sm" href="/paiements/simuler"><%- icon('shield', 'sm') %> Passerelle de démonstration</a>
+    <% } %>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi">
+    <div class="k-label">Notifications reçues</div>
+    <div class="k-value"><%= n(s.total) %></div>
+    <div class="k-sub">Toutes passerelles confondues</div>
+  </div>
+  <div class="kpi kpi--success">
+    <div class="k-label">Traitées</div>
+    <div class="k-value"><%= n(s.processed) %></div>
+    <div class="k-sub">Paiement confirmé et commande mise à jour</div>
+  </div>
+  <div class="kpi kpi--accent">
+    <div class="k-label">Doublons</div>
+    <div class="k-value"><%= n(s.duplicates) %></div>
+    <div class="k-sub">Renvois ignorés, sans second encaissement</div>
+  </div>
+  <div class="kpi kpi--danger">
+    <div class="k-label">Rejetées</div>
+    <div class="k-value"><%= n(s.rejected) %></div>
+    <div class="k-sub">Montant, devise ou commande incohérents</div>
+  </div>
+  <div class="kpi kpi--warn">
+    <div class="k-label">Signatures invalides</div>
+    <div class="k-value"><%= n(s.bad_signature) %></div>
+    <div class="k-sub">Rejetées avant tout traitement</div>
+  </div>
+</div>
+
+<div class="split split--side">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Journal des réceptions</h2>
+      <span class="hint"><%= eventList.length %> dernière(s)</span>
+    </div>
+    <div class="panel-body panel-body--flush">
+      <% if (!eventList.length) { %>
+        <p class="empty-row">
+          Aucune notification reçue pour l’instant. Dès qu’un prestataire est connecté — ou dès un test
+          via la passerelle de démonstration — chaque réception est tracée ici avec son verdict.
+        </p>
+      <% } else { %>
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Notifications de paiement reçues</caption>
+            <thead>
+              <tr>
+                <th scope="col">Reçue le</th>
+                <th scope="col">Passerelle</th>
+                <th scope="col">Événement</th>
+                <th scope="col">Type</th>
+                <th scope="col">Signature</th>
+                <th scope="col">Verdict</th>
+                <th scope="col">Détail</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% eventList.forEach(function (ev) { %>
+                <tr>
+                  <td class="mono tiny" style="white-space:nowrap"><%= dates.formatDateTime(ev.received_at) %></td>
+                  <td><span class="pill pill--brand"><%= ev.provider %></span></td>
+                  <td class="mono tiny" style="word-break:break-all"><%= ev.event_id || '—' %></td>
+                  <td class="tiny"><%= ev.kind || '—' %></td>
+                  <td>
+                    <span class="pill pill--<%= ev.signature_ok ? 'success' : 'danger' %>">
+                      <%= ev.signature_ok ? 'valide' : 'invalide' %>
+                    </span>
+                  </td>
+                  <td>
+                    <span class="pill pill--<%= statusToneOf(ev.status) %>"><%= statusLabels[ev.status] || ev.status %></span>
+                    <% if (ev.processed_at) { %><span class="tiny muted" style="display:block">traitée <%= dates.formatDateTime(ev.processed_at) %></span><% } %>
+                  </td>
+                  <td class="tiny">
+                    <% if (ev.error) { %><span style="color:var(--danger)"><%= ev.error %></span><% } else { %><span class="muted">—</span><% } %>
+                    <span class="mono tiny muted" style="display:block">IP <%= ev.ip || '—' %></span>
+                    <% if (ev.payload) { %>
+                      <details style="margin-top:4px">
+                        <summary class="tiny" style="cursor:pointer;color:var(--brand)">Voir la charge utile</summary>
+                        <pre class="code-block" style="margin-top:6px;max-height:220px;overflow:auto"><%= prettyPayload(ev.payload) %></pre>
+                      </details>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:var(--space-4)">
+      <div class="panel-head"><h2>Point de réception</h2></div>
+      <div class="panel-body">
+        <p class="tiny muted" style="margin-top:0">URL à communiquer au prestataire :</p>
+        <div class="code-block" style="white-space:pre-wrap;word-break:break-all"><%= endpoint %></div>
+        <dl class="kv" style="margin-top:var(--space-3)">
+          <dt>Méthode</dt><dd><code>POST</code> uniquement (<code>GET</code> renvoie 405)</dd>
+          <dt>Signature</dt>
+          <dd>
+            <span class="pill pill--<%= secretConfigured ? 'success' : 'danger' %>">
+              <%= secretConfigured ? 'secret HMAC configuré' : 'secret absent' %>
+            </span>
+          </dd>
+          <dt>Taille maximale</dt><dd>64 Ko par notification</dd>
+          <dt>Déduplication</dt><dd>couple <code>(passerelle, identifiant d’événement)</code> unique</dd>
+        </dl>
+        <% if (!secretConfigured) { %>
+          <div class="alert alert--danger" style="margin-top:var(--space-3)">
+            <%- icon('alert', 'sm') %>
+            <span>
+              Renseignez <code>PAYMENT_WEBHOOK_SECRET</code> dans le fichier <code>.env</code> du serveur
+              avant tout encaissement réel. Sans secret, les notifications non signées sont rejetées (401).
+            </span>
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:var(--space-4)">
+      <div class="panel-head"><h2>Règles de validation</h2></div>
+      <div class="panel-body">
+        <ul class="tight tiny">
+          <li>Passerelle inconnue → rejetée avant lecture du corps.</li>
+          <li>Signature HMAC absente ou invalide → <strong>401</strong>, aucun traitement.</li>
+          <li>Événement déjà reçu → <strong>200</strong> « doublon », aucun second encaissement.</li>
+          <li>Commande inconnue → <strong>404</strong>.</li>
+          <li>Montant, devise ou commande différents de la commande → <strong>422</strong> et journalisation.</li>
+          <li>Commande déjà payée → marquée doublon, jamais payée deux fois.</li>
+          <li>Statuts distincts : commande, paiement et livraison évoluent séparément.</li>
+          <li>Une page de retour, une capture d’écran ou un message client ne valident <strong>jamais</strong> un paiement.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Passerelles</h2></div>
+      <div class="panel-body">
+        <% if (simulationEnabled) { %>
+          <p class="tiny" style="margin-top:0">
+            La passerelle de démonstration est <strong>autorisée</strong> sur cette installation :
+            elle signe réellement ses notifications et permet de tester le succès, l’échec, le
+            doublon et le montant erroné sans argent en jeu.
+          </p>
+          <a class="btn btn--sm btn--block" href="/paiements/simuler"><%- icon('shield', 'sm') %> Ouvrir la passerelle de démonstration</a>
+          <p class="field-help">À désactiver en production : <code>PAYMENT_SIMULATION_ENABLED=false</code>.</p>
+        <% } else { %>
+          <p class="tiny muted" style="margin-top:0">
+            La passerelle de démonstration est désactivée. Seules les passerelles marchandes
+            configurées peuvent envoyer des notifications.
+          </p>
+        <% } %>
+        <p class="tiny muted" style="margin-bottom:0">
+          Wave, Orange Money, MTN MoMo et Moov Money restent « non configurés » tant que les
+          identifiants marchands ne sont pas fournis. Aucune API n’a été inventée : les adaptateurs
+          renvoient une erreur explicite tant que la configuration est absente.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

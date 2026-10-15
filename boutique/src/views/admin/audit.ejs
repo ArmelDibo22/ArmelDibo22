@@ -1,0 +1,171 @@
+<%
+/**
+ * Journal d'audit : qui a fait quoi, quand.
+ *
+ * Toutes les actions sensibles (connexion, modification de catalogue, réglage,
+ * confirmation d'un encaissement en espèces, remboursement, sauvegarde) y sont
+ * tracées côté serveur. Ce journal est en lecture seule : aucune interface ne
+ * permet de le modifier, ce qui garantit sa valeur de preuve.
+ */
+const itemList = Array.isArray(items) ? items : [];
+const types = Array.isArray(entityTypes) ? entityTypes : [];
+const f = filters || {};
+
+/** Libellé lisible d'une action technique (`catalog.update` → « Catalogue · update »). */
+function actionLabel(action) {
+  const raw = String(action || '');
+  const parts = raw.split('.');
+  const domains = {
+    auth: 'Connexion', catalog: 'Catalogue', product: 'Article', order: 'Commande',
+    orders: 'Commande', payment: 'Paiement', payments: 'Paiement', stock: 'Stock',
+    pos: 'Caisse', settings: 'Réglages', user: 'Utilisateur', users: 'Utilisateur',
+    customer: 'Client', customers: 'Client', backup: 'Sauvegarde', import: 'Import',
+    media: 'Média', shipping: 'Livraison', refund: 'Remboursement', system: 'Système',
+  };
+  const head = domains[parts[0]] || parts[0] || '—';
+  return parts.length > 1 ? `${head} · ${parts.slice(1).join('.')}` : head;
+}
+
+function toneFor(action) {
+  const raw = String(action || '');
+  if (/delete|remove|suppr|cancel|refund|anonym/i.test(raw)) return 'danger';
+  if (/login|logout|confirm|cash|restore|write|update|create|import/i.test(raw)) return 'warn';
+  return 'info';
+}
+
+function prettyDetail(detail) {
+  if (!detail) return '';
+  try {
+    const parsed = JSON.parse(detail);
+    if (parsed && typeof parsed === 'object') {
+      return Object.entries(parsed)
+        .filter(([, v]) => v !== null && v !== '')
+        .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
+        .join(' · ')
+        .slice(0, 400);
+    }
+    return String(parsed).slice(0, 400);
+  } catch {
+    return String(detail).slice(0, 400);
+  }
+}
+
+const qs = (extra) => {
+  const params = new URLSearchParams();
+  const merged = Object.assign({}, f, extra);
+  Object.entries(merged).forEach(([k, v]) => { if (v) params.set(k, String(v)); });
+  const s = params.toString();
+  return s ? `?${s}` : '';
+};
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Journal d’audit</h1>
+    <p class="sub"><%= total %> entrée(s) enregistrée(s) · lecture seule</p>
+  </div>
+  <a class="btn btn--sm btn--quiet" href="/admin/etat"><%- icon('gauge', 'sm') %> État technique</a>
+</div>
+
+<form method="get" action="/admin/journal" class="panel" style="margin-bottom:var(--space-4)">
+  <div class="panel-body">
+    <div class="form-grid form-grid--3">
+      <div>
+        <label for="f-entite">Type d’entité</label>
+        <select id="f-entite" name="entite">
+          <option value="">Tous</option>
+          <% types.forEach(function (t) { %>
+            <option value="<%= t %>" <%= f.entite === t ? 'selected' : '' %>><%= t %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div>
+        <label for="f-utilisateur">Utilisateur</label>
+        <input id="f-utilisateur" name="utilisateur" type="text" inputmode="numeric" value="<%= f.utilisateur || '' %>" placeholder="Identifiant numérique">
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <button class="btn btn--sm" type="submit"><%- icon('filter', 'sm') %> Filtrer</button>
+        <% if (f.entite || f.utilisateur) { %>
+          <a class="btn btn--sm btn--quiet" href="/admin/journal">Réinitialiser</a>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Entrées</h2>
+    <span class="hint">Page <%= pagination.page %> / <%= pagination.pages %></span>
+  </div>
+  <div class="panel-body panel-body--flush">
+    <% if (!itemList.length) { %>
+      <p class="empty-row">
+        Aucune entrée pour ce filtre. Le journal se remplit dès la première action
+        (connexion, création d’article, encaissement confirmé…).
+      </p>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact">
+          <caption class="visually-hidden">Entrées du journal d'audit</caption>
+          <thead>
+            <tr>
+              <th scope="col">Date et heure</th>
+              <th scope="col">Auteur</th>
+              <th scope="col">Action</th>
+              <th scope="col">Entité</th>
+              <th scope="col">Détail</th>
+              <th scope="col">IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% itemList.forEach(function (a) { %>
+              <tr>
+                <td class="mono tiny" style="white-space:nowrap"><%= dates.formatDateTime(a.created_at) %></td>
+                <td>
+                  <% if (a.user_name || a.user_email) { %>
+                    <strong><%= a.user_name || a.user_email %></strong>
+                    <span class="tiny muted" style="display:block"><%= a.actor === 'admin' ? 'Administration' : a.actor || 'système' %></span>
+                  <% } else { %>
+                    <span class="tiny muted">Système (<%= a.actor || 'automatique' %>)</span>
+                  <% } %>
+                </td>
+                <td><span class="pill pill--<%= toneFor(a.action) %>"><%= actionLabel(a.action) %></span></td>
+                <td class="tiny">
+                  <%= a.entity_type || '—' %>
+                  <% if (a.entity_id) { %><span class="mono muted" style="display:block"><%= a.entity_id %></span><% } %>
+                </td>
+                <td class="tiny muted mono" style="max-width:38ch;overflow-wrap:anywhere"><%= prettyDetail(a.detail) || '—' %></td>
+                <td class="mono tiny muted"><%= a.ip || '—' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+  <% if (pagination.pages > 1) { %>
+    <div class="panel-foot">
+      <nav class="pagination" aria-label="Pagination du journal">
+        <% if (pagination.hasPrev) { %>
+          <a class="btn btn--sm btn--quiet" href="/admin/journal<%= qs({ page: pagination.page - 1 }) %>">
+            <%- icon('list', 'xs') %> Page précédente
+          </a>
+        <% } %>
+        <span class="tiny muted">Page <%= pagination.page %> sur <%= pagination.pages %> · <%= pagination.perPage %> entrées par page</span>
+        <% if (pagination.hasNext) { %>
+          <a class="btn btn--sm btn--quiet" href="/admin/journal<%= qs({ page: pagination.page + 1 }) %>">Page suivante</a>
+        <% } %>
+      </nav>
+    </div>
+  <% } %>
+</div>
+
+<p class="tiny muted" style="margin-top:var(--space-4)">
+  Le journal est conservé dans la base de données et sauvegardé avec elle. Il ne contient aucune donnée
+  de carte bancaire. Les adresses IP ne sont enregistrées que pour les actions sensibles et restent
+  consultables uniquement par un administrateur.
+</p>
+
+<%- include('/admin/partials/footer') %>

@@ -1,0 +1,25 @@
+<%
+/** Navigation latérale du compte client. Attend `active` (clé d'onglet). */
+const key = typeof active !== 'undefined' ? active : 'dashboard';
+const links = [
+  { key: 'dashboard', href: '/compte', label: 'Mon compte', icon: 'dashboard' },
+  { key: 'orders', href: '/compte/commandes', label: 'Mes commandes', icon: 'package' },
+  { key: 'settings', href: '/compte/parametres', label: 'Mes informations', icon: 'user' },
+];
+%>
+<nav aria-label="Mon compte">
+  <ul class="account-nav">
+    <% links.forEach(function (l) { %>
+      <li><a href="<%= l.href %>" <%- l.key === key ? 'aria-current="page"' : '' %>><%- icon(l.icon, 'sm') %> <%= l.label %></a></li>
+    <% }); %>
+    <li>
+      <form method="post" action="/compte/deconnexion" style="margin-top:6px">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="link-btn" type="submit" style="padding:10px 12px;display:block"><%- icon('logout', 'xs') %> Se déconnecter</button>
+      </form>
+    </li>
+  </ul>
+</nav>
+<p class="tiny muted" style="margin-top:var(--space-4)">
+  Le compte est facultatif : vous pouvez commander et suivre une commande sans en créer un.
+</p>

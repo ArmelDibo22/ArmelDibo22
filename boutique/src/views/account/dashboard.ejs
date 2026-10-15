@@ -1,0 +1,78 @@
+<%
+/** Tableau de bord du compte client. */
+const list = (typeof orders !== 'undefined' && orders) ? orders : [];
+const last = list[0] || null;
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4) var(--space-7)">
+  <h1>Bonjour <%= (customer.full_name || '').split(' ')[0] || 'à vous' %></h1>
+  <p class="muted">Retrouvez vos commandes, vos coordonnées et votre suivi.</p>
+
+  <div class="account-grid" style="margin-top:var(--space-5)">
+    <aside><%- include('/partials/account-nav', { active: 'dashboard' }) %></aside>
+
+    <div>
+      <% if (!list.length) { %>
+        <div class="state">
+          <%- icon('package', 'xl') %>
+          <h2>Aucune commande pour l’instant</h2>
+          <p>Vos commandes passées avec ces coordonnées apparaîtront ici, avec leur suivi.</p>
+          <a class="btn" href="/catalogue">Découvrir le catalogue</a>
+        </div>
+      <% } else { %>
+        <div class="tracking-card">
+          <h2 style="font-size:1.05rem">Dernières commandes</h2>
+          <div class="table-wrap" style="border:0">
+            <table class="data">
+              <caption class="visually-hidden">Vos commandes récentes</caption>
+              <thead><tr><th scope="col">Référence</th><th scope="col">Date</th><th scope="col">État</th><th scope="col" class="num">Total</th><th scope="col"></th></tr></thead>
+              <tbody>
+                <% list.slice(0, 6).forEach(function (o) { %>
+                  <tr>
+                    <td class="mono"><%= o.reference %></td>
+                    <td><%= dates.formatDate(o.placed_at) %></td>
+                    <td>
+                      <span class="pill pill--<%= statusTone('order', o.status) %>"><%= labels.order[o.status] || o.status %></span>
+                      <% if (o.payment_status !== 'paid') { %><span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span><% } %>
+                    </td>
+                    <td class="num"><%= money.format(o.total) %></td>
+                    <td class="right"><a class="btn btn--sm btn--quiet" href="/compte/commande/<%= o.reference %>">Voir</a></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin-top:var(--space-3)"><a class="btn btn--ghost btn--sm" href="/compte/commandes">Toutes mes commandes</a></p>
+        </div>
+
+        <% if (last) { %>
+          <div class="tracking-card" style="margin-top:var(--space-4)">
+            <h2 style="font-size:1.05rem">Commande en cours</h2>
+            <p style="margin-bottom:var(--space-2)">
+              <span class="ref-badge"><%= last.reference %></span>
+              <span class="pill pill--<%= statusTone('order', last.status) %>" style="margin-left:8px"><%= labels.order[last.status] || last.status %></span>
+              <span class="pill pill--<%= statusTone('delivery', last.delivery_status) %>" style="margin-left:4px"><%= labels.delivery[last.delivery_status] || last.delivery_status %></span>
+            </p>
+            <div class="btn-row">
+              <a class="btn btn--sm" href="/compte/commande/<%= last.reference %>">Voir le détail</a>
+              <a class="btn btn--sm btn--ghost" href="/suivi/<%= last.tracking_token %>">Lien de suivi</a>
+            </div>
+          </div>
+        <% } %>
+      <% } %>
+
+      <div class="tracking-card" style="margin-top:var(--space-4)">
+        <h2 style="font-size:1.05rem">Mes coordonnées</h2>
+        <dl class="kv">
+          <dt>Nom</dt><dd><%= customer.full_name %></dd>
+          <% if (customer.email) { %><dt>E-mail</dt><dd><%= customer.email %></dd><% } %>
+          <% if (customer.phone) { %><dt>Téléphone</dt><dd><%= formatPhone(customer.phone) %></dd><% } %>
+          <% if (customer.city) { %><dt>Ville</dt><dd><%= customer.city %></dd><% } %>
+          <dt>Compte créé le</dt><dd><%= dates.formatDate(customer.created_at) %></dd>
+          <dt>Publicité</dt>
+          <dd><%= customer.marketing_consent ? 'Consentement donné' + (customer.consent_at ? ` le ${dates.formatDate(customer.consent_at)}` : '') : 'Aucun consentement marketing' %></dd>
+        </dl>
+        <p style="margin-top:var(--space-3)"><a class="btn btn--ghost btn--sm" href="/compte/parametres">Modifier mes informations</a></p>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,30 @@
+<%
+/** Page introuvable — fragment de corps, inséré dans `layout` ou `admin/layout`. */
+const inAdmin = typeof adminLayout !== 'undefined' && adminLayout;
+%>
+<div class="container" style="padding:var(--space-7) var(--space-4)">
+  <div class="state" style="max-width:620px;margin:0 auto">
+    <%- icon('search', 'xl') %>
+    <p class="eyebrow">Erreur 404</p>
+    <h1>Page introuvable</h1>
+    <p>
+      Le lien que vous avez suivi n’existe pas ou l’article a été retiré de la vente.
+      Rien n’a été enregistré et aucun paiement n’est en cours.
+    </p>
+    <div class="btn-row" style="justify-content:center">
+      <% if (inAdmin) { %>
+        <a class="btn" href="/admin">Retour au tableau de bord</a>
+      <% } else { %>
+        <a class="btn" href="/catalogue"><%- icon('grid', 'sm') %> Voir le catalogue</a>
+        <a class="btn btn--ghost" href="/">Accueil</a>
+        <a class="btn btn--ghost" href="/suivi"><%- icon('truck', 'sm') %> Suivre une commande</a>
+      <% } %>
+    </div>
+    <% if (!inAdmin) { %>
+      <p class="tiny muted" style="margin-top:var(--space-5)">
+        Vous cherchez un article précis ? Utilisez la recherche en haut de page, ou
+        <% if (store.phoneDisplay) { %>appelez le <a href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a>.<% } else { %><a href="/contact">contactez la boutique</a>.<% } %>
+      </p>
+    <% } %>
+  </div>
+</div>

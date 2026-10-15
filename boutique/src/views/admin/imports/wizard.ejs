@@ -1,0 +1,425 @@
+<%
+/**
+ * Assistant d'import : association des colonnes, options, aperçu, exécution.
+ * L'aperçu n'écrit rien dans le catalogue : il qualifie chaque ligne.
+ */
+const statusLabels = {
+  uploaded: 'Fichier lu',
+  mapped: 'Aperçu réalisé',
+  running: 'Import en cours',
+  done: 'Import terminé',
+  failed: 'Échec',
+  cancelled: 'Annulé',
+};
+const opts = job.options || {};
+const mapped = job.mapping || {};
+const hasPreview = ['mapped', 'running', 'done', 'cancelled'].includes(job.status);
+const summary = previewSummary || null;
+const sampleKeys = sample && sample.length ? Object.keys(sample[0]) : headers;
+const usedColumns = new Set(Object.values(storedMapping || {}).filter(Boolean));
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Import — <%= job.filename %></h1>
+    <p class="sub">
+      <%= job.total_rows %> ligne(s) · format <%= job.format.toUpperCase() %> ·
+      reçu le <%= dates.formatDateTime(job.created_at) %> ·
+      <span class="pill pill--<%= job.status === 'done' ? 'success' : 'warn' %>"><%= statusLabels[job.status] || job.status %></span>
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/import"><%- icon('arrow-left', 'sm') %> Import / export</a>
+    <% if (hasPreview) { %><a class="btn btn--ghost" href="/admin/import/<%= job.id %>/rapport"><%- icon('file', 'sm') %> Rapport</a><% } %>
+  </div>
+</div>
+
+<% if (!sourceAvailable) { %>
+  <div class="alert alert--warn">
+    <%- icon('alert', 'md') %>
+    <div>
+      <strong>Fichier source introuvable</strong>
+      <p style="margin:4px 0 0">Le fichier téléversé n’est plus présent sur le disque (nettoyage automatique ou déplacement).
+      Les lignes déjà lues restent exploitables, mais les intitulés de colonnes d’origine ne peuvent plus être relus.
+      En cas de doute, relancez un import depuis le fichier d’origine.</p>
+    </div>
+  </div>
+<% } %>
+
+<!-- ---------------- 1. Aperçu du fichier ---------------- -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>1. Contenu du fichier</h2>
+    <span class="hint"><%= sample.length %> première(s) ligne(s) sur <%= job.total_rows %></span>
+  </div>
+  <div class="panel-body panel-body--flush">
+    <% if (!sample.length) { %>
+      <p class="empty-row">Aucun échantillon disponible.</p>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact">
+          <caption class="visually-hidden">Premières lignes du fichier</caption>
+          <thead>
+            <tr>
+              <th scope="col">Ligne</th>
+              <% sampleKeys.forEach(function (h) { %>
+                <th scope="col"><%= h %><% if (usedColumns.has(h)) { %> <span class="pill pill--success">associée</span><% } %></th>
+              <% }); %>
+            </tr>
+          </thead>
+          <tbody>
+            <% sample.forEach(function (row, i) { %>
+              <tr>
+                <td class="tiny muted"><%= i + 2 %></td>
+                <% sampleKeys.forEach(function (h) { %>
+                  <td class="tiny" style="max-width:24ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<%= row[h] %>"><%= row[h] %></td>
+                <% }); %>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<!-- ---------------- 2. Association des colonnes + 3. options ---------------- -->
+<div data-import-wizard data-job-id="<%= job.id %>"
+     data-headers='<%- JSON.stringify(headers) %>'
+     data-suggestions='<%- JSON.stringify(suggestions || {}) %>'
+     data-batch-size="<%= job.batch_size || 50 %>">
+
+  <form method="post" action="/admin/import/<%= job.id %>/colonnes" id="form-colonnes">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>2. Associer les colonnes</h2>
+        <div class="btn-row">
+          <button class="btn btn--sm btn--quiet" type="button" data-import-autofill><%- icon('refresh', 'sm') %> Proposition automatique</button>
+          <span class="hint">Une colonne ne peut servir qu’à un seul champ</span>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="mapping-grid">
+          <% columns.forEach(function (c) { %>
+            <% const current = storedMapping[c.key] || ''; %>
+            <div class="mapping-row" data-mapped="<%= current ? 'true' : 'false' %>" data-required="<%= c.required ? 'true' : 'false' %>">
+              <div class="col-name"><%= c.label %></div>
+              <div class="col-sample">
+                <% const alias = (c.aliases || []).slice(0, 3).join(', '); %>
+                alias reconnus : <%= alias %>
+              </div>
+              <label class="visually-hidden" for="map-<%= c.key %>">Colonne du fichier pour « <%= c.label %> »</label>
+              <select id="map-<%= c.key %>" name="mapping[<%= c.key %>]" data-mapping-field="<%= c.key %>">
+                <option value="">— ne pas importer —</option>
+                <% headers.forEach(function (h) { %>
+                  <option value="<%= h %>" <%= current === h ? 'selected' : '' %>><%= h %></option>
+                <% }); %>
+              </select>
+            </div>
+          <% }); %>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>3. Options d’import</h2><span class="hint">Ces choix s’appliquent à toutes les lignes</span></div>
+      <div class="panel-body">
+        <div class="form-grid form-grid--3">
+          <div class="field">
+            <label for="mode">Mode</label>
+            <select id="mode" name="mode">
+              <option value="create" <%= (job.mode === 'create' || job.mode === 'preview') ? 'selected' : '' %>>Créer de nouveaux articles</option>
+              <option value="update" <%= job.mode === 'update' ? 'selected' : '' %>>Mettre à jour par référence</option>
+              <option value="upsert" <%= job.mode === 'upsert' ? 'selected' : '' %>>Créer ou mettre à jour (recommandé)</option>
+            </select>
+            <span class="field-help">
+              En mise à jour, l’article est retrouvé par sa <strong>référence</strong> : une référence absente du
+              catalogue provoque une erreur explicite plutôt qu’une création involontaire.
+            </span>
+          </div>
+
+          <div class="field">
+            <label for="blank_policy">Cellules vides en mise à jour</label>
+            <select id="blank_policy" name="blank_policy">
+              <option value="keep" <%= (opts.blankPolicy || 'keep') === 'keep' ? 'selected' : '' %>>Conserver la valeur existante (par défaut)</option>
+              <option value="clear" <%= opts.blankPolicy === 'clear' ? 'selected' : '' %>>Effacer la valeur existante</option>
+            </select>
+            <span class="field-help">
+              Protection importante : une case vide dans votre fichier ne doit pas effacer une donnée
+              déjà saisie, sauf si vous le choisissez ici.
+            </span>
+          </div>
+
+          <div class="field">
+            <label for="status_for_new">Statut des articles créés</label>
+            <select id="status_for_new" name="status_for_new">
+              <option value="draft" <%= (opts.statusForNew || 'draft') === 'draft' ? 'selected' : '' %>>Brouillon (à compléter puis publier)</option>
+              <option value="published" <%= opts.statusForNew === 'published' ? 'selected' : '' %>>Publié immédiatement</option>
+            </select>
+            <span class="field-help">
+              Même en « publié », un article sans prix ni confirmation reste en brouillon : il ne sera pas vendable.
+            </span>
+          </div>
+
+          <div class="field">
+            <label for="batch_size">Taille des lots</label>
+            <select id="batch_size" name="batch_size">
+              <% [25, 50, 100, 200, 500].forEach(function (n) { %>
+                <option value="<%= n %>" <%= Number(opts.batchSize || job.batch_size || 50) === n ? 'selected' : '' %>><%= n %> lignes par lot</option>
+              <% }); %>
+            </select>
+            <span class="field-help">L’import progresse lot par lot : vous pouvez interrompre et reprendre.</span>
+          </div>
+        </div>
+
+        <fieldset>
+          <legend>Compléments automatiques</legend>
+          <label class="checkbox">
+            <input type="checkbox" name="create_categories" value="1" <%= opts.createMissingCategories === false ? '' : 'checked' %>>
+            <span>Créer les catégories et sous-catégories absentes
+              <span class="tiny muted" style="display:block">Sinon les lignes concernées sont rejetées avec la liste des catégories manquantes.</span>
+            </span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="create_brands" value="1" <%= opts.createMissingBrands === false ? '' : 'checked' %>>
+            <span>Créer les marques absentes</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="generate_sku" value="1" <%= opts.generateMissingSku ? 'checked' : '' %>>
+            <span>Générer une référence pour les lignes sans référence
+              <span class="tiny muted" style="display:block">Format IMP-00012. À réserver aux fichiers incomplets : une référence stable facilite les mises à jour ultérieures.</span>
+            </span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="confirm_imported" value="1" <%= opts.confirmImported ? 'checked' : '' %>>
+            <span>Marquer les articles importés comme « prix et disponibilité confirmés »
+              <span class="tiny muted" style="display:block">
+                Ne cochez que si le fichier provient d’une source fiable : sans cette confirmation, l’article n’est pas vendable.
+              </span>
+            </span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="allow_missing_price" value="1" <%= opts.allowMissingPrice ? 'checked' : '' %>>
+            <span>Accepter les lignes sans prix (l’article reste en brouillon)</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Effacer explicitement certaines colonnes</legend>
+          <p class="tiny muted" style="margin-top:0">
+            Sélectionnez les champs que le fichier doit <strong>vider</strong> lorsqu’ils sont absents ou vides.
+            Aucun champ n’est effacé par défaut.
+          </p>
+          <div class="form-grid form-grid--3">
+            <% columns.filter(function (c) { return !['sku', 'name'].includes(c.key); }).forEach(function (c) { %>
+              <label class="checkbox" style="margin-bottom:4px;padding:6px 10px">
+                <input type="checkbox" name="clear_columns" value="<%= c.key %>"
+                  <%= (opts.clearColumns || []).indexOf(c.key) !== -1 ? 'checked' : '' %>>
+                <span style="font-size:.86rem"><%= c.label %></span>
+              </label>
+            <% }); %>
+          </div>
+        </fieldset>
+
+        <div class="btn-row">
+          <button class="btn" type="submit"><%- icon('eye', 'sm') %> Lancer l’aperçu et valider les lignes</button>
+          <span class="tiny muted">L’aperçu n’écrit rien dans le catalogue : il contrôle et prépare l’exécution.</span>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <!-- ---------------- 4. Aperçu ---------------- -->
+  <div class="panel" id="apercu">
+    <div class="panel-head">
+      <h2>4. Aperçu et contrôle</h2>
+      <span class="hint"><%= hasPreview ? 'Réalisé' : 'En attente' %></span>
+    </div>
+    <div class="panel-body">
+      <% if (!hasPreview || !summary) { %>
+        <p class="muted" style="margin:0">Associez les colonnes puis lancez l’aperçu : chaque ligne sera contrôlée
+        (prix, référence, catégorie, stock, doublons) avant toute écriture.</p>
+      <% } else { %>
+        <div class="report-grid">
+          <div class="report-cell"><span class="n"><%= summary.total %></span><span class="l">Lignes lues</span></div>
+          <div class="report-cell report-cell--ok"><span class="n"><%= summary.create %></span><span class="l">Créations</span></div>
+          <div class="report-cell report-cell--ok"><span class="n"><%= summary.update %></span><span class="l">Mises à jour</span></div>
+          <div class="report-cell report-cell--warn"><span class="n"><%= summary.duplicate %></span><span class="l">Doublons détectés</span></div>
+          <div class="report-cell"><span class="n"><%= summary.skip %></span><span class="l">Ignorées</span></div>
+          <div class="report-cell report-cell--err"><span class="n"><%= summary.invalid %></span><span class="l">Rejetées</span></div>
+          <div class="report-cell"><span class="n"><%= summary.ready %></span><span class="l">Prêtes à importer</span></div>
+          <div class="report-cell"><span class="n"><%= summary.warnings %></span><span class="l">Avertissements</span></div>
+        </div>
+
+        <% if (summary.missingCategories.length) { %>
+          <div class="alert alert--warn">
+            <%- icon('alert', 'md') %>
+            <div>
+              <strong>Catégories manquantes</strong>
+              <ul style="margin:6px 0 0;padding-left:18px">
+                <% summary.missingCategories.slice(0, 10).forEach(function (m) { %><li><%= m %></li><% }); %>
+              </ul>
+              <p class="tiny" style="margin:6px 0 0">Créez-les dans <a href="/admin/categories">Catégories</a>, ou activez la création automatique.</p>
+            </div>
+          </div>
+        <% } %>
+        <% if (summary.missingSkus.length) { %>
+          <div class="alert alert--warn">
+            <%- icon('alert', 'md') %>
+            <div>
+              <strong>Références introuvables</strong>
+              <ul style="margin:6px 0 0;padding-left:18px">
+                <% summary.missingSkus.slice(0, 10).forEach(function (m) { %><li><%= m %></li><% }); %>
+              </ul>
+            </div>
+          </div>
+        <% } %>
+
+        <% if (previewRows.length) { %>
+          <div class="scroll-x">
+            <table class="data compact">
+              <caption class="visually-hidden">Premières lignes après association</caption>
+              <thead><tr><th scope="col">Ligne</th><th scope="col">Référence</th><th scope="col">Nom</th><th scope="col" class="num">Prix</th><th scope="col" class="num">Stock</th><th scope="col">Action</th><th scope="col">Contrôle</th></tr></thead>
+              <tbody>
+                <% previewRows.forEach(function (r) { %>
+                  <% let meta = {}; try { meta = JSON.parse(r.message || '{}'); } catch (e) { meta = {}; } %>
+                  <tr>
+                    <td class="tiny muted"><%= r.row_number %></td>
+                    <td class="mono tiny"><%= r.sku || '—' %></td>
+                    <td class="tiny" style="max-width:28ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<%= r.data && r.data.name %>"><%= (r.data && r.data.name) || '—' %></td>
+                    <td class="num tiny"><%= r.data && r.data.price ? money.format(r.data.price) : '—' %></td>
+                    <td class="num tiny"><%= r.data && r.data.qty != null ? r.data.qty : '—' %></td>
+                    <td class="tiny"><span class="pill pill--<%= r.action === 'update' ? 'info' : (r.action === 'skip' ? 'neutral' : 'success') %>"><%= r.action || '—' %></span></td>
+                    <td class="tiny">
+                      <% if (meta.errors && meta.errors.length) { %>
+                        <span class="pill pill--danger"><%= meta.errors.length %> erreur(s)</span>
+                        <span class="muted" style="display:block"><%= meta.errors.map((e) => e.message).join(' · ').slice(0, 160) %></span>
+                      <% } else if (meta.warnings && meta.warnings.length) { %>
+                        <span class="pill pill--warn"><%= meta.warnings.length %> avertissement(s)</span>
+                        <span class="muted" style="display:block"><%= meta.warnings.map((e) => e.message).join(' · ').slice(0, 160) %></span>
+                      <% } else { %>
+                        <span class="pill pill--success">ligne valide</span>
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- ---------------- 5. Exécution ---------------- -->
+  <div class="panel" id="progression">
+    <div class="panel-head">
+      <h2>5. Exécution</h2>
+      <span class="hint">Traitement par lots, interruptible et reprenable</span>
+    </div>
+    <div class="panel-body">
+      <div class="progress-track">
+        <div class="progress-bar" data-import-bar style="width:<%= progress ? progress.percent : 0 %>%<%= progress && progress.done ? ';background:var(--success)' : '' %>"></div>
+      </div>
+      <div class="progress-meta">
+        <span data-import-meta>
+          <%= progress ? `${progress.processed} / ${progress.total} ligne(s) traitée(s) — ${progress.counts.ok} réussie(s), ${progress.counts.error} rejetée(s), ${progress.counts.pending} en attente` : 'Aperçu à réaliser' %>
+        </span>
+        <strong data-import-percent><%= progress ? progress.percent : 0 %> %</strong>
+      </div>
+
+      <div class="btn-row" style="margin-top:var(--space-4)">
+        <button class="btn" type="button" data-import-run <%= hasPreview ? '' : 'disabled' %>>
+          <%- icon('upload', 'sm') %>
+          <% if (progress && progress.done) { %>Import terminé — voir le rapport<% } else if (progress && progress.processed > 0) { %>Reprendre l’import<% } else { %>Lancer l’import<% } %>
+        </button>
+        <a class="btn btn--ghost" href="/admin/import/<%= job.id %>/rapport"><%- icon('file', 'sm') %> Rapport détaillé</a>
+        <% if (job.status !== 'done' && job.status !== 'cancelled') { %>
+          <form method="post" action="/admin/import/<%= job.id %>/annuler" style="display:inline" data-confirm="Annuler cet import ? Les lignes déjà traitées restent enregistrées.">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button class="btn btn--quiet" type="submit"><%- icon('close', 'sm') %> Annuler l’import</button>
+          </form>
+        <% } %>
+      </div>
+
+      <p class="tiny muted" style="margin-top:var(--space-3)">
+        Vous pouvez fermer cette page pendant l’import : le traitement reprend là où il s’est arrêté,
+        lot par lot, sans jamais réimporter une ligne déjà traitée.
+      </p>
+    </div>
+  </div>
+
+  <!-- ---------------- Lignes en erreur ---------------- -->
+  <% if (errorRows && errorRows.length) { %>
+    <div class="panel" style="border-color:#f0c4c0">
+      <div class="panel-head">
+        <h2 style="color:var(--danger)">Lignes rejetées (<%= errorRows.length %>)</h2>
+        <form method="post" action="/admin/import/<%= job.id %>/relancer-erreurs" style="display:inline">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="btn btn--sm btn--quiet" type="submit" data-confirm-action="Remettre les lignes rejetées en file d’attente ?">
+            <%- icon('refresh', 'sm') %> Remettre en file après correction
+          </button>
+        </form>
+      </div>
+      <div class="panel-body panel-body--flush">
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Lignes rejetées</caption>
+            <thead><tr><th scope="col">Ligne</th><th scope="col">Référence</th><th scope="col">Nom</th><th scope="col">Raison du rejet</th></tr></thead>
+            <tbody>
+              <% errorRows.forEach(function (r) { %>
+                <% let meta = {}; try { meta = JSON.parse(r.message || '{}'); } catch (e) { meta = {}; } %>
+                <tr>
+                  <td class="tiny muted"><%= r.row_number %></td>
+                  <td class="mono tiny"><%= r.sku || '—' %></td>
+                  <td class="tiny" style="max-width:24ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= (r.data && r.data.name) || '—' %></td>
+                  <td class="tiny">
+                    <% if (meta.errors && meta.errors.length) { %>
+                      <ul style="margin:0;padding-left:16px">
+                        <% meta.errors.forEach(function (e) { %><li><%= e.message %></li><% }); %>
+                      </ul>
+                    <% } else { %>
+                      <%= r.message || 'Erreur non précisée' %>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (duplicateRows && duplicateRows.length) { %>
+    <div class="panel">
+      <div class="panel-head"><h2>Doublons détectés (<%= duplicateRows.length %>)</h2><span class="hint">Même référence présente plusieurs fois</span></div>
+      <div class="panel-body panel-body--flush">
+        <div class="scroll-x">
+          <table class="data compact">
+            <caption class="visually-hidden">Doublons</caption>
+            <thead><tr><th scope="col">Ligne</th><th scope="col">Référence</th><th scope="col">Nom</th><th scope="col">Traitement</th></tr></thead>
+            <tbody>
+              <% duplicateRows.forEach(function (r) { %>
+                <% let meta = {}; try { meta = JSON.parse(r.message || '{}'); } catch (e) { meta = {}; } %>
+                <tr>
+                  <td class="tiny muted"><%= r.row_number %></td>
+                  <td class="mono tiny"><%= r.sku %></td>
+                  <td class="tiny"><%= (r.data && r.data.name) || '—' %></td>
+                  <td class="tiny">
+                    <%= (meta.warnings || []).map((w) => w.message).join(' · ') || 'Ligne ignorée pour éviter un doublon.' %>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<%- include('/admin/partials/footer') %>

@@ -1,0 +1,207 @@
+<%
+/**
+ * Contact et localisation.
+ * N'affiche que des informations confirmées en administration : pas d'adresse
+ * inventée, pas d'horaires supposés. Le lien de carte utilise l'URL fournie ou,
+ * à défaut, les coordonnées géographiques.
+ */
+const errs = (typeof errors !== 'undefined' && errors) ? errors : {};
+const v = (typeof values !== 'undefined' && values) ? values : {};
+const isSent = typeof sent !== 'undefined' && sent;
+const mapHref = store.mapsUrl || (store.lat && store.lng ? `https://www.google.com/maps?q=${store.lat},${store.lng}` : '');
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4) var(--space-7)">
+  <%- include('/partials/breadcrumb', { crumbs: [{ label: 'Contact et localisation' }] }) %>
+  <h1>Contact et localisation</h1>
+  <p class="subtle" style="max-width:70ch">
+    Une question sur un article, un stock ou une livraison ? Écrivez-nous : nous répondons
+    pendant les heures d’ouverture de la boutique.
+  </p>
+
+  <% if (isSent) { %>
+    <div class="alert alert--success" role="status">
+      <%- icon('check-circle', 'md') %>
+      <div>
+        <strong>Message envoyé</strong>
+        <p style="margin:4px 0 0">Merci. Votre demande a été enregistrée et sera traitée par la boutique.
+        Pour une réponse immédiate, appelez directement<% if (store.phoneDisplay) { %> le <a href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a><% } %>.</p>
+      </div>
+    </div>
+  <% } %>
+
+  <div class="contact-grid" style="margin-top:var(--space-5)">
+    <div>
+      <div class="tracking-card">
+        <h2 style="font-size:1.05rem">Nos coordonnées</h2>
+        <ul class="info-list">
+          <li>
+            <%- icon('store', 'md') %>
+            <div>
+              <span class="k">Établissement</span>
+              <span class="v"><%= store.name %></span>
+              <span class="tiny muted" style="display:block">
+                <% if (store.addressConfirmed && store.address) { %><%= store.address %>, <% } %><%= store.city %><% if (store.region) { %>, région <%= store.region %><% } %>, <%= store.country %>
+              </span>
+              <% if (!store.addressConfirmed) { %>
+                <span class="tiny muted" style="display:block">L’adresse précise est en cours de confirmation : appelez-nous pour l’itinéraire.</span>
+              <% } %>
+            </div>
+          </li>
+
+          <% if (!store.contacts.length) { %>
+            <li>
+              <%- icon('phone', 'md') %>
+              <div><span class="k">Téléphone</span><span class="v">Coordonnées en cours de publication</span></div>
+            </li>
+          <% } %>
+          <% store.contacts.forEach(function (c) { %>
+            <li>
+              <%- icon(c.type === 'phone' ? 'phone' : (c.type === 'email' ? 'mail' : 'info'), 'md') %>
+              <div>
+                <span class="k"><%= c.label || (c.type === 'phone' ? 'Téléphone' : c.type === 'email' ? 'E-mail' : 'Information') %></span>
+                <span class="v">
+                  <% if (c.type === 'phone') { %>
+                    <a href="tel:<%= String(c.value).replace(/\D/g, '') %>"><%= c.display || c.value %></a>
+                    <% if (c.whatsapp_enabled && store.whatsappEnabled) { %>
+                      <span class="pill pill--success" style="margin-left:6px"><%- icon('whatsapp', 'xs') %> WhatsApp</span>
+                    <% } %>
+                  <% } else if (c.type === 'email') { %>
+                    <a href="mailto:<%= c.value %>"><%= c.value %></a>
+                  <% } else { %><%= c.value %><% } %>
+                </span>
+                <% if (c.is_primary) { %><span class="tiny muted" style="display:block">Contact principal</span><% } %>
+              </div>
+            </li>
+          <% }); %>
+
+          <% if (store.hoursStatus === 'confirmed' && store.hours.length) { %>
+            <li>
+              <%- icon('clock', 'md') %>
+              <div>
+                <span class="k">Horaires</span>
+                <ul style="list-style:none;margin:4px 0 0;padding:0">
+                  <% store.hours.forEach(function (h) { %>
+                    <li class="v" style="font-size:.92rem"><%= h.day %> : <%= h.closed ? 'Fermé' : `${h.open} – ${h.close}` %><% if (h.note) { %> <span class="tiny muted">(<%= h.note %>)</span><% } %></li>
+                  <% }); %>
+                </ul>
+              </div>
+            </li>
+          <% } else { %>
+            <li>
+              <%- icon('clock', 'md') %>
+              <div>
+                <span class="k">Horaires</span>
+                <span class="v">Non publiés pour l’instant</span>
+                <span class="tiny muted" style="display:block">Appelez-nous avant de vous déplacer : nous vous confirmerons l’ouverture.</span>
+              </div>
+            </li>
+          <% } %>
+
+          <% if (store.registration) { %>
+            <li><%- icon('file', 'md') %><div><span class="k">Immatriculation</span><span class="v"><%= store.registration %></span></div></li>
+          <% } %>
+        </ul>
+
+        <div class="btn-row" style="margin-top:var(--space-4)">
+          <% if (mapHref) { %>
+            <a class="btn btn--ghost btn--sm" href="<%= mapHref %>" target="_blank" rel="noopener noreferrer"><%- icon('map-pin', 'sm') %> Itinéraire</a>
+          <% } %>
+          <% if (whatsappUrl) { %>
+            <a class="btn btn--whatsapp btn--sm" href="<%= whatsappUrl %>" target="_blank" rel="noopener noreferrer"><%- icon('whatsapp', 'sm') %> WhatsApp</a>
+          <% } %>
+          <% if (store.phoneRaw) { %>
+            <a class="btn btn--sm" href="tel:<%= store.phoneRaw %>"><%- icon('phone', 'sm') %> Appeler</a>
+          <% } %>
+        </div>
+        <% if (store.whatsappEnabled && store.whatsappDisclaimer) { %>
+          <p class="tiny muted" style="margin-top:var(--space-2)"><%= store.whatsappDisclaimer %></p>
+        <% } %>
+      </div>
+
+      <div class="map-frame" style="margin-top:var(--space-4)">
+        <div class="map-static">
+          <%- icon('map-pin', 'xl') %>
+          <p style="margin:var(--space-3) 0"><strong><%= store.city %></strong>, région <%= store.region %> — <%= store.country %></p>
+          <% if (store.lat && store.lng) { %>
+            <p class="tiny muted" style="margin-bottom:var(--space-3)">Coordonnées : <%= store.lat %>, <%= store.lng %></p>
+          <% } %>
+          <% if (mapHref) { %>
+            <a class="btn btn--sm" href="<%= mapHref %>" target="_blank" rel="noopener noreferrer">Ouvrir dans Google Maps</a>
+          <% } %>
+          <p class="tiny muted" style="margin-top:var(--space-3)">
+            Aucune carte n’est intégrée à cette page : votre navigateur n’envoie aucune donnée à un service tiers avant que vous cliquiez.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="tracking-card">
+        <h2 style="font-size:1.05rem">Nous écrire</h2>
+        <form method="post" action="/contact" novalidate>
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <!-- Champ de piège : invisible pour une personne, rempli par les robots. -->
+          <div style="position:absolute;left:-9999px" aria-hidden="true">
+            <label for="website">Site web (ne pas remplir)</label>
+            <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label for="name">Votre nom <span class="required-mark" aria-hidden="true">*</span></label>
+            <input id="name" name="name" type="text" required maxlength="120" autocomplete="name" value="<%= v.name || '' %>"
+                   aria-invalid="<%= errs.name ? 'true' : 'false' %>">
+            <% if (errs.name) { %><span class="field-error"><%= errs.name %></span><% } %>
+          </div>
+
+          <div class="field">
+            <label for="contact">Téléphone ou e-mail <span class="required-mark" aria-hidden="true">*</span></label>
+            <input id="contact" name="contact" type="text" required maxlength="120" value="<%= v.contact || '' %>"
+                   placeholder="07 00 00 00 00" aria-describedby="contact-help"
+                   aria-invalid="<%= errs.contact ? 'true' : 'false' %>">
+            <span id="contact-help" class="field-help">Pour pouvoir vous répondre. Utilisé uniquement pour cette demande.</span>
+            <% if (errs.contact) { %><span class="field-error"><%= errs.contact %></span><% } %>
+          </div>
+
+          <div class="field">
+            <label for="message">Votre message <span class="required-mark" aria-hidden="true">*</span></label>
+            <textarea id="message" name="message" required maxlength="2000" rows="6" placeholder="Article recherché, quantité, délai souhaité, question sur une commande…"
+                      aria-invalid="<%= errs.message ? 'true' : 'false' %>"><%= v.message || '' %></textarea>
+            <% if (errs.message) { %><span class="field-error"><%= errs.message %></span><% } %>
+          </div>
+
+          <button class="btn btn--block" type="submit"><%- icon('mail', 'sm') %> Envoyer le message</button>
+          <p class="tiny muted" style="margin-top:var(--space-3)">
+            Ce formulaire n’ajoute aucun abonnement à une liste de diffusion. Les données transmises servent
+            uniquement à traiter votre demande. Voir la
+            <a href="/informations/confidentialite">politique de confidentialité</a>.
+          </p>
+        </form>
+      </div>
+
+      <% if (zones && zones.length) { %>
+        <div class="tracking-card" style="margin-top:var(--space-4)">
+          <h2 style="font-size:1.05rem">Zones desservies</h2>
+          <ul class="info-list">
+            <% zones.forEach(function (z) { %>
+              <li>
+                <%- icon(z.kind === 'pickup' ? 'store' : 'truck', 'md') %>
+                <div>
+                  <span class="v"><%= z.name %></span>
+                  <span class="tiny muted" style="display:block">
+                    <% if (z.kind === 'pickup') { %>Retrait sur place, sans frais de livraison
+                    <% } else if (z.requires_quote) { %>Frais de livraison établis sur devis, acceptés avant paiement
+                    <% } else { %>Frais de livraison calculés selon le poids et le montant
+                    <% } %>
+                    <% if (z.eta_text) { %> · <%= z.eta_text %><% } %>
+                    <% if (z.cod_allowed) { %> · paiement à la réception possible<% } %>
+                  </span>
+                </div>
+              </li>
+            <% }); %>
+          </ul>
+          <p style="margin-top:var(--space-3)"><a class="btn btn--ghost btn--sm" href="/informations/livraison-retours">Conditions détaillées</a></p>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</div>

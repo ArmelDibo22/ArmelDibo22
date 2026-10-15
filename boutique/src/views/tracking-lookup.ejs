@@ -1,0 +1,51 @@
+<%
+/** Recherche d'une commande : référence + 4 derniers chiffres du téléphone. */
+const err = (typeof error !== 'undefined' && error) ? error : '';
+%>
+<div class="container" style="padding:var(--space-6) var(--space-4);max-width:640px">
+  <%- include('/partials/breadcrumb', { crumbs: [{ label: 'Suivi de commande' }] }) %>
+  <h1>Suivre ma commande</h1>
+  <p class="subtle">
+    Le suivi est protégé : la référence seule ne suffit pas. Indiquez aussi les
+    <strong>4 derniers chiffres du téléphone</strong> utilisé pour la commande.
+  </p>
+
+  <% if (err) { %>
+    <div class="alert alert--error" role="alert"><%- icon('alert', 'md') %><span><%= err %></span></div>
+  <% } %>
+
+  <form method="post" action="/suivi" class="auth-card" style="margin:var(--space-4) 0;max-width:none">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div class="field">
+      <label for="reference">Référence de commande</label>
+      <input id="reference" name="reference" type="text" required maxlength="40" autocomplete="off"
+             placeholder="Ex. : PRV-<%= year %>-000123" aria-describedby="ref-help">
+      <span id="ref-help" class="field-help">Elle figure dans le message de confirmation et sur votre récapitulatif.</span>
+    </div>
+    <div class="field">
+      <label for="phone">Téléphone de la commande</label>
+      <input id="phone" name="phone" type="tel" inputmode="numeric" required maxlength="30"
+             placeholder="07 58 11 38 57" aria-describedby="phone-help">
+      <span id="phone-help" class="field-help">Seuls les 4 derniers chiffres sont comparés. Le numéro complet n’est pas conservé ici.</span>
+    </div>
+    <button class="btn btn--block" type="submit"><%- icon('search', 'sm') %> Retrouver ma commande</button>
+  </form>
+
+  <div class="callout">
+    <strong>Autre moyen d’accès</strong>
+    <p style="margin:6px 0 0">
+      Le lien de suivi personnel envoyé après la commande (<span class="mono">/suivi/…</span>) donne accès
+      au même suivi, sans saisir la référence. Conservez-le.
+    </p>
+    <% if (customer) { %>
+      <p style="margin:8px 0 0"><a href="/compte/commandes">Voir mes commandes dans mon compte</a></p>
+    <% } else { %>
+      <p style="margin:8px 0 0">Vous aviez créé un compte ? <a href="/compte/connexion">Connectez-vous</a> pour retrouver vos commandes.</p>
+    <% } %>
+  </div>
+
+  <p class="tiny muted" style="margin-top:var(--space-4)">
+    Pour limiter les tentatives automatiques, le nombre de recherches est limité dans le temps.
+    En cas de difficulté, contactez la boutique<% if (store.phoneDisplay) { %> au <a href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a><% } %>.
+  </p>
+</div>

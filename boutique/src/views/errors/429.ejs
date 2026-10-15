@@ -1,0 +1,32 @@
+<%
+/** Trop de demandes (429) — document autonome, rendu sans gabarit. */
+const wait = typeof retryAfter !== 'undefined' && retryAfter ? Number(retryAfter) : 60;
+%>
+<!doctype html>
+<html lang="fr">
+<head>
+<%- include('/partials/head', { title: 'Trop de demandes', noindex: true, canonical: null }) %>
+<meta http-equiv="refresh" content="<%= wait %>">
+</head>
+<body data-density="<%= theme.density %>">
+<main id="contenu" class="container" style="padding:var(--space-8) var(--space-4)">
+  <div class="state" style="max-width:560px;margin:0 auto">
+    <%- icon('clock', 'xl') %>
+    <p class="eyebrow">Erreur 429</p>
+    <h1>Trop de demandes</h1>
+    <p>
+      Pour protéger la boutique et éviter les commandes automatiques, nous limitons temporairement
+      le nombre de requêtes. Attendez environ <strong><%= wait %> seconde(s)</strong> puis réessayez.
+    </p>
+    <p class="tiny muted">Cette page se rechargera automatiquement dans <%= wait %> seconde(s).
+    Votre panier et vos commandes déjà passées ne sont pas affectés.</p>
+    <div class="btn-row" style="justify-content:center">
+      <a class="btn" href="<%= typeof currentUrl !== 'undefined' ? currentUrl : '/' %>">
+        <%- icon('refresh', 'sm') %> Réessayer maintenant
+      </a>
+      <a class="btn btn--ghost" href="/">Retour à l’accueil</a>
+    </div>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<%
+/** Liste des commandes du client connecté (isolation garantie côté serveur). */
+const list = (typeof orders !== 'undefined' && orders) ? orders : [];
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4) var(--space-7)">
+  <h1>Mes commandes</h1>
+
+  <div class="account-grid" style="margin-top:var(--space-5)">
+    <aside><%- include('/partials/account-nav', { active: 'orders' }) %></aside>
+
+    <div>
+      <% if (!list.length) { %>
+        <div class="state">
+          <%- icon('package', 'xl') %>
+          <h2>Aucune commande</h2>
+          <p>Les commandes passées avec ce compte apparaîtront ici.</p>
+          <a class="btn" href="/catalogue">Voir le catalogue</a>
+        </div>
+      <% } else { %>
+        <div class="tracking-card" style="padding:0;overflow:hidden">
+          <% list.forEach(function (o, idx) { %>
+            <article style="padding:var(--space-4);<%= idx ? 'border-top:1px solid var(--border)' : '' %>">
+              <div class="catalog-head" style="margin-bottom:var(--space-3)">
+                <div>
+                  <strong class="ref-badge"><%= o.reference %></strong>
+                  <span class="tiny muted" style="display:block;margin-top:4px">
+                    <%= dates.formatDateTime(o.placed_at) %> · <%= o.items.length %> article(s) ·
+                    <%= o.fulfillment_mode === 'pickup' ? 'Retrait en boutique' : 'Livraison' %>
+                  </span>
+                </div>
+                <div class="btn-row">
+                  <span class="pill pill--<%= statusTone('order', o.status) %>"><%= labels.order[o.status] || o.status %></span>
+                  <span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span>
+                  <span class="pill pill--<%= statusTone('delivery', o.delivery_status) %>"><%= labels.delivery[o.delivery_status] || o.delivery_status %></span>
+                </div>
+              </div>
+
+              <ul style="list-style:none;margin:0 0 var(--space-3);padding:0">
+                <% o.items.slice(0, 4).forEach(function (it) { %>
+                  <li style="display:flex;justify-content:space-between;gap:var(--space-3);font-size:.9rem;padding:3px 0">
+                    <span><%= it.qty %> × <%= it.name %><% if (it.options_label) { %> <span class="tiny muted">(<%= it.options_label %>)</span><% } %></span>
+                    <span class="nowrap"><%= money.format(it.line_total) %></span>
+                  </li>
+                <% }); %>
+                <% if (o.items.length > 4) { %>
+                  <li class="tiny muted" style="padding-top:4px">+ <%= o.items.length - 4 %> autre(s) article(s)</li>
+                <% } %>
+              </ul>
+
+              <div class="catalog-head" style="margin:0">
+                <strong class="price"><%= money.format(o.total) %></strong>
+                <div class="btn-row">
+                  <a class="btn btn--sm" href="/compte/commande/<%= o.reference %>">Détail et suivi</a>
+                  <% if (o.payment_status !== 'paid' && o.status !== 'cancelled') { %>
+                    <form method="post" action="/commande/<%= o.tracking_token %>/payer" style="display:inline">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <button class="btn btn--sm btn--accent" type="submit"><%- icon('wallet', 'xs') %> Régler</button>
+                    </form>
+                  <% } %>
+                </div>
+              </div>
+            </article>
+          <% }); %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</div>

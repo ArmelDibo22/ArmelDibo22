@@ -1,0 +1,94 @@
+<%
+/** En-tête public : recherche, catégories et panier accessibles immédiatement. */
+const navItems = navTree();
+const cartCount = (cart && cart.itemCount) || 0;
+const isHome = currentPath === '/';
+const activeSlug = currentPath.startsWith('/categorie/') ? decodeURIComponent(currentPath.split('/')[2] || '') : '';
+const waNumber = store.whatsappEnabled && store.whatsapp ? store.whatsapp.value.replace(/\D/g, '') : '';
+const waText = encodeURIComponent(`Bonjour ${store.shortName}, j'ai une question.`);
+%>
+<a class="skip-link" href="#contenu">Aller au contenu</a>
+
+<% if (store.demoBanner) { %>
+<div class="notice-bar notice-bar--demo" role="note">
+  <div class="container">
+    <span><strong>Environnement de démonstration</strong> — catalogue fictif, aucun paiement réel.</span>
+  </div>
+</div>
+<% } %>
+
+<div class="notice-bar" role="status">
+  <div class="container">
+    <span><%- icon('map-pin', 'xs') %> <%= store.city %><% if (store.region) { %>, <%= store.region %><% } %></span>
+    <span><%- icon('store', 'xs') %> Retrait en boutique ou livraison</span>
+    <% if (store.phoneDisplay) { %>
+      <span><%- icon('phone', 'xs') %> <a href="tel:<%= store.phoneRaw %>"><%= store.phoneDisplay %></a></span>
+    <% } %>
+    <span style="margin-left:auto"><a href="/suivi"><%- icon('truck', 'xs') %> Suivre ma commande</a></span>
+  </div>
+</div>
+
+<header class="site-header">
+  <div class="container header-top">
+    <a class="brand" href="/" aria-label="<%= store.name %> — accueil">
+      <span class="brand-mark">
+        <% if (store.logoKey) { %>
+          <img src="<%= mediaUrl(store.logoKey, 'thumb') %>" alt="" width="40" height="40">
+        <% } else { %>
+          <abbr title="<%= store.name %>" style="text-decoration:none"><%= (store.shortName || 'ETS').split(' ').filter(Boolean).slice(-2).map(w => w[0]).join('') %></abbr>
+        <% } %>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name"><%= store.shortName || store.name %></span>
+        <span class="brand-place"><%= store.city %><% if (store.region) { %> · <%= store.region %><% } %></span>
+      </span>
+    </a>
+
+    <div class="header-search">
+      <form class="search-form" action="/recherche" method="get" role="search" data-search-form>
+        <span class="search-icon"><%- icon('search', 'sm') %></span>
+        <label class="visually-hidden" for="q">Rechercher un article</label>
+        <input id="q" type="search" name="q" value="<%= typeof q !== 'undefined' ? q : '' %>"
+               placeholder="Rechercher : cahier, clé USB, téléphone…"
+               autocomplete="off" minlength="2" maxlength="80"
+               aria-describedby="search-help" aria-expanded="false" aria-controls="search-suggest">
+        <button type="submit"><span class="visually-hidden">Rechercher</span><%- icon('search', 'sm') %></button>
+        <div class="search-suggest" id="search-suggest" data-suggest role="listbox" aria-label="Suggestions"></div>
+      </form>
+      <span id="search-help" class="visually-hidden">Les résultats s’affichent dans une nouvelle page. Aucune donnée n’est enregistrée dans votre navigateur.</span>
+    </div>
+
+    <div class="header-actions">
+      <% if (waNumber) { %>
+        <a class="icon-btn" href="https://wa.me/<%= waNumber %>?text=<%= waText %>" target="_blank" rel="noopener noreferrer"
+           title="Écrire sur WhatsApp" aria-label="Écrire sur WhatsApp">
+          <%- icon('whatsapp', 'lg') %>
+        </a>
+      <% } %>
+      <a class="icon-btn" href="/compte" title="Mon compte" aria-label="<%= customer ? 'Mon compte' : 'Se connecter' %>">
+        <%- icon('user', 'lg') %>
+      </a>
+      <a class="icon-btn" href="/panier" title="Panier" aria-label="Panier<%= cartCount ? `, ${cartCount} article(s)` : ', vide' %>">
+        <%- icon('cart', 'lg') %>
+        <span class="badge" data-cart-count <%= cartCount ? '' : 'data-zero="true"' %>><%= cartCount || '' %></span>
+      </a>
+      <button class="icon-btn" type="button" data-drawer-open aria-label="Ouvrir le menu des catégories" aria-expanded="false" aria-controls="menu-categories">
+        <%- icon('menu', 'lg') %>
+      </button>
+    </div>
+  </div>
+
+  <nav class="header-nav" aria-label="Navigation principale">
+    <div class="container">
+      <a href="/" <%- isHome ? 'aria-current="page"' : '' %>>Accueil</a>
+      <a href="/catalogue" <%- currentPath === '/catalogue' ? 'aria-current="page"' : '' %>>Tout le catalogue</a>
+      <% navItems.forEach(function (c) { %>
+        <a href="/categorie/<%= c.slug %>" <%- activeSlug === c.slug ? 'aria-current="page"' : '' %>><%= c.name %></a>
+      <% }); %>
+      <a href="/contact" <%- currentPath === '/contact' ? 'aria-current="page"' : '' %>>Contact</a>
+    </div>
+  </nav>
+</header>
+
+<%- include('/partials/drawer') %>
+<%- include('/partials/flashes') %>

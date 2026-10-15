@@ -1,0 +1,60 @@
+<%
+/** Page éditable (livraison et retours, confidentialité, conditions…). */
+const allPages = (typeof pages !== 'undefined' && pages) ? pages : [];
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4) var(--space-7)">
+  <%- include('/partials/breadcrumb', { crumbs: [{ label: 'Informations', href: '/informations/' + page.slug }, { label: page.title }] }) %>
+
+  <div class="split split--side">
+    <article class="tracking-card">
+      <h1><%= page.title %></h1>
+
+      <% if (page.needs_review) { %>
+        <div class="alert alert--warn">
+          <%- icon('alert', 'md') %>
+          <div>
+            <strong>Texte à compléter et à valider</strong>
+            <p style="margin:4px 0 0">
+              Ce document contient un modèle de rédaction et des mentions à compléter par l’établissement.
+              Il n’engage pas la boutique tant qu’il n’a pas été relu et validé.
+            </p>
+          </div>
+        </div>
+      <% } %>
+
+      <div class="rich">
+        <%- page.body %>
+      </div>
+
+      <% if (page.updated_at) { %>
+        <p class="tiny muted" style="margin-top:var(--space-5);border-top:1px solid var(--border);padding-top:var(--space-3)">
+          Dernière mise à jour : <%= dates.formatDate(page.updated_at) %>
+        </p>
+      <% } %>
+
+      <div class="btn-row no-print" style="margin-top:var(--space-4)">
+        <a class="btn btn--ghost btn--sm" href="/contact"><%- icon('mail', 'sm') %> Une question sur ce texte ?</a>
+        <button class="btn btn--quiet btn--sm" type="button" data-print><%- icon('print', 'sm') %> Imprimer</button>
+      </div>
+    </article>
+
+    <aside>
+      <div class="tracking-card">
+        <h2 style="font-size:1rem">Informations</h2>
+        <ul class="account-nav">
+          <% allPages.forEach(function (p) { %>
+            <li><a href="/informations/<%= p.slug %>" <%- p.slug === page.slug ? 'aria-current="page"' : '' %>><%= p.title %></a></li>
+          <% }); %>
+        </ul>
+      </div>
+      <div class="tracking-card" style="margin-top:var(--space-4)">
+        <h2 style="font-size:1rem">Besoin d’aide ?</h2>
+        <div class="btn-row" style="flex-direction:column;align-items:stretch">
+          <% if (store.phoneDisplay) { %><a class="btn btn--ghost btn--sm" href="tel:<%= store.phoneRaw %>"><%- icon('phone', 'sm') %> <%= store.phoneDisplay %></a><% } %>
+          <a class="btn btn--ghost btn--sm" href="/suivi"><%- icon('truck', 'sm') %> Suivre une commande</a>
+          <a class="btn btn--ghost btn--sm" href="/contact"><%- icon('map-pin', 'sm') %> Contact et localisation</a>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>

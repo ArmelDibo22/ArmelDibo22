@@ -1,0 +1,187 @@
+<%
+/**
+ * Liste des commandes avec filtres serveur et groupes de travail
+ * (devis à établir, encaissements à confirmer).
+ */
+const f = filters || {};
+const groups = [
+  { key: '', label: 'Toutes', count: pagination.total },
+  { key: 'open', label: 'Ouvertes', count: counts.open },
+  { key: 'quote', label: 'Devis à établir', count: counts.quotes },
+  { key: 'cash', label: 'Encaissements à confirmer', count: counts.cash },
+];
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Commandes</h1>
+    <p class="sub">
+      <%= counts.open %> ouverte(s) · <%= counts.quotes %> devis en attente · <%= counts.cash %> encaissement(s) à confirmer
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/exports/commandes.csv"><%- icon('download', 'sm') %> Export CSV</a>
+    <a class="btn btn--ghost" href="/admin/statistiques"><%- icon('chart', 'sm') %> Statistiques</a>
+  </div>
+</div>
+
+<div class="active-filters" style="margin-bottom:var(--space-4)">
+  <% groups.forEach(function (g) { %>
+    <a class="chip <%= (f.group || '') === g.key ? 'is-active' : '' %>" href="<%= qs(req, { groupe: g.key || null, page: null }) %>">
+      <%= g.label %> (<%= g.count %>)
+    </a>
+  <% }); %>
+</div>
+
+<div class="panel">
+  <div class="panel-body">
+    <form method="get" action="/admin/commandes" class="inline-form">
+      <div class="field" style="flex:2 1 200px">
+        <label for="q">Recherche</label>
+        <input id="q" name="q" type="search" value="<%= f.q || '' %>" placeholder="Référence, nom, téléphone, suivi…">
+      </div>
+      <div class="field" style="flex:1 1 150px">
+        <label for="statut">Commande</label>
+        <select id="statut" name="statut">
+          <option value="">Tous</option>
+          <% orderStatuses.forEach(function (s) { %>
+            <option value="<%= s.value %>" <%= f.status === s.value ? 'selected' : '' %>><%= s.label %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 150px">
+        <label for="paiement">Paiement</label>
+        <select id="paiement" name="paiement">
+          <option value="">Tous</option>
+          <% paymentStatuses.forEach(function (s) { %>
+            <option value="<%= s.value %>" <%= f.paymentStatus === s.value ? 'selected' : '' %>><%= s.label %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 150px">
+        <label for="livraison">Livraison</label>
+        <select id="livraison" name="livraison">
+          <option value="">Tous</option>
+          <% deliveryStatuses.forEach(function (s) { %>
+            <option value="<%= s.value %>" <%= f.deliveryStatus === s.value ? 'selected' : '' %>><%= s.label %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 130px">
+        <label for="mode">Mode</label>
+        <select id="mode" name="mode">
+          <option value="">Tous</option>
+          <option value="pickup" <%= f.mode === 'pickup' ? 'selected' : '' %>>Retrait</option>
+          <option value="delivery" <%= f.mode === 'delivery' ? 'selected' : '' %>>Livraison</option>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 150px">
+        <label for="zone">Zone</label>
+        <select id="zone" name="zone">
+          <option value="">Toutes</option>
+          <% zones.forEach(function (z) { %>
+            <option value="<%= z.id %>" <%= String(f.zoneId || '') === String(z.id) ? 'selected' : '' %>><%= z.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 140px">
+        <label for="du">Du</label>
+        <input id="du" name="du" type="date" value="<%= f.from || '' %>">
+      </div>
+      <div class="field" style="flex:1 1 140px">
+        <label for="au">Au</label>
+        <input id="au" name="au" type="date" value="<%= f.to || '' %>">
+      </div>
+      <button class="btn" type="submit"><%- icon('filter', 'sm') %> Filtrer</button>
+      <a class="btn btn--quiet" href="/admin/commandes">Réinitialiser</a>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2><%= pagination.total %> commande(s)</h2>
+    <span class="hint">Les trois statuts (commande, paiement, livraison) sont distincts</span>
+  </div>
+  <div class="panel-body panel-body--flush">
+    <% if (!items.length) { %>
+      <div class="empty-row">
+        <%- icon('cart', 'xl') %>
+        <p style="margin:var(--space-3) 0"><strong>Aucune commande</strong></p>
+        <p class="tiny muted" style="max-width:56ch;margin:0 auto">
+          Les commandes passées sur le site apparaissent ici dès leur enregistrement.
+          Pour enregistrer une vente réalisée en boutique, utilisez la caisse.
+        </p>
+        <div class="btn-row" style="justify-content:center;margin-top:var(--space-4)">
+          <a class="btn" href="/admin/caisse">Ouvrir la caisse</a>
+          <a class="btn btn--quiet" href="/admin/commandes">Voir toutes les commandes</a>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="scroll-x">
+        <table class="data compact">
+          <caption class="visually-hidden">Commandes</caption>
+          <thead>
+            <tr>
+              <th scope="col">Référence</th>
+              <th scope="col">Date</th>
+              <th scope="col">Client</th>
+              <th scope="col">Réception</th>
+              <th scope="col">Statuts</th>
+              <th scope="col">Paiement</th>
+              <th scope="col" class="num">Total</th>
+              <th scope="col" class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% items.forEach(function (o) { %>
+              <tr>
+                <td>
+                  <a href="/admin/commandes/<%= o.id %>" class="mono" style="font-weight:700"><%= o.reference %></a>
+                  <% if (o.quote_required) { %><span class="pill pill--warn" style="margin-left:4px">devis</span><% } %>
+                  <% if (o.customer_note) { %><span class="pill" style="margin-left:4px" title="<%= o.customer_note %>">note</span><% } %>
+                </td>
+                <td class="tiny"><%= dates.formatDateTime(o.placed_at) %></td>
+                <td>
+                  <%= o.recipient_name %>
+                  <span class="tiny muted" style="display:block"><%= formatPhone(o.recipient_phone) %></span>
+                  <% if (o.customer_name && o.customer_name !== o.recipient_name) { %>
+                    <span class="tiny muted">compte : <%= o.customer_name %></span>
+                  <% } %>
+                </td>
+                <td class="tiny">
+                  <% if (o.fulfillment_mode === 'pickup') { %>
+                    <span class="pill"><%- icon('store', 'xs') %> Retrait</span>
+                  <% } else { %>
+                    <span class="pill"><%- icon('truck', 'xs') %> <%= o.zone_name || 'Livraison' %></span>
+                    <span class="muted" style="display:block"><%= [o.quarter, o.city].filter(Boolean).join(', ') %></span>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="pill pill--<%= statusTone('order', o.status) %>"><%= labels.order[o.status] || o.status %></span>
+                  <span class="pill pill--<%= statusTone('delivery', o.delivery_status) %>" style="margin-left:2px"><%= labels.delivery[o.delivery_status] || o.delivery_status %></span>
+                </td>
+                <td>
+                  <span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span>
+                  <% if (o.amount_refunded > 0) { %><span class="tiny muted" style="display:block">remboursé <%= money.format(o.amount_refunded) %></span><% } %>
+                </td>
+                <td class="num"><strong><%= money.format(o.total) %></strong></td>
+                <td class="right">
+                  <span class="row-actions">
+                    <a class="btn btn--sm btn--quiet" href="/admin/commandes/<%= o.id %>">Ouvrir</a>
+                    <a class="btn btn--sm btn--quiet" href="/admin/commandes/<%= o.id %>/impression" target="_blank" rel="noopener" title="Imprimer"><%- icon('print', 'xs') %><span class="visually-hidden">Imprimer</span></a>
+                  </span>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/partials/pagination', { pagination }) %>
+
+<%- include('/admin/partials/footer') %>

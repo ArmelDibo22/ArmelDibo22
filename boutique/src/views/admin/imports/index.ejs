@@ -1,0 +1,204 @@
+<%
+/**
+ * Import et export du catalogue : dépôt du fichier, modèles téléchargeables,
+ * historique des lots et export complet.
+ */
+const statusLabels = {
+  uploaded: 'Fichier lu — colonnes à associer',
+  mapped: 'Aperçu prêt — import à lancer',
+  running: 'Import en cours',
+  done: 'Terminé',
+  failed: 'Échec',
+  cancelled: 'Annulé',
+};
+const toneOf = (st) => (st === 'done' ? 'success' : st === 'running' ? 'info' : st === 'failed' ? 'danger' : st === 'cancelled' ? 'neutral' : 'warn');
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Import et export du catalogue</h1>
+    <p class="sub">
+      Ajoutez ou mettez à jour des centaines d’articles depuis un fichier Excel (.xlsx) ou CSV,
+      avec aperçu et validation avant toute écriture.
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--ghost" href="/admin/import/modele.xlsx"><%- icon('download', 'sm') %> Modèle Excel</a>
+    <a class="btn btn--quiet" href="/admin/import/modele.csv"><%- icon('download', 'sm') %> Modèle CSV</a>
+  </div>
+</div>
+
+<div class="split split--2">
+  <div>
+    <!-- ---------------- Dépôt de fichier ---------------- -->
+    <div class="panel">
+      <div class="panel-head"><h2>1. Déposer un fichier</h2><span class="hint">.xlsx ou .csv</span></div>
+      <div class="panel-body">
+        <form method="post" action="/admin/import/televerser" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field">
+            <label for="fichier">Fichier à importer</label>
+            <div class="drop-zone">
+              <input id="fichier" name="fichier" type="file" accept=".xlsx,.xlsm,.csv,text/csv" required>
+              <p style="margin:0 0 6px"><%- icon('upload', 'lg') %></p>
+              <label for="fichier" class="btn btn--sm btn--ghost" style="cursor:pointer">Choisir un fichier</label>
+              <p class="tiny muted" style="margin:8px 0 0">
+                Première ligne = en-têtes de colonnes · jusqu’à <%= limits.maxRows.toLocaleString('fr-FR') %> lignes ·
+                <%= Math.round(limits.maxFileBytes / 1024 / 1024) %> Mo maximum.
+              </p>
+            </div>
+          </div>
+          <button class="btn" type="submit"><%- icon('upload', 'sm') %> Lire le fichier</button>
+        </form>
+
+        <div class="callout" style="margin-top:var(--space-4)">
+          <strong>Déroulé de l’import</strong>
+          <ol style="margin:6px 0 0;padding-left:18px;font-size:.9rem">
+            <li>Le fichier est lu, aucune donnée n’est encore écrite.</li>
+            <li>Vous associez chaque colonne de votre fichier à un champ de la boutique (proposition automatique).</li>
+            <li>Vous choisissez le mode : création, mise à jour par référence, ou les deux.</li>
+            <li>L’aperçu contrôle chaque ligne : prix, référence, stock, catégorie, doublons.</li>
+            <li>L’import s’exécute par lots avec une barre de progression, puis un rapport détaillé est produit.</li>
+          </ol>
+        </div>
+
+        <div class="alert alert--info" style="margin-top:var(--space-3)">
+          <%- icon('info', 'md') %>
+          <div>
+            <strong>À savoir</strong>
+            <ul style="margin:6px 0 0;padding-left:18px">
+              <li>Une cellule vide dans un fichier de <strong>mise à jour</strong> n’efface pas la valeur existante, sauf choix explicite de votre part.</li>
+              <li>Un article sans prix confirmé reste <strong>en brouillon</strong> : il n’est jamais proposé à la vente.</li>
+              <li>Les fichiers PDF ou les photos de catalogue ne sont pas convertis automatiquement : préparez un tableau
+              (l’export du catalogue existant peut servir de base) puis importez-le après relecture humaine.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------- Historique ---------------- -->
+    <div class="panel">
+      <div class="panel-head"><h2>Lots précédents</h2><span class="hint"><%= jobs.length %> affiché(s)</span></div>
+      <div class="panel-body panel-body--flush">
+        <% if (!jobs.length) { %>
+          <p class="empty-row">Aucun import réalisé pour l’instant.</p>
+        <% } else { %>
+          <div class="scroll-x">
+            <table class="data compact">
+              <caption class="visually-hidden">Historique des imports</caption>
+              <thead><tr><th scope="col">Fichier</th><th scope="col">Date</th><th scope="col">Mode</th><th scope="col" class="num">Lignes</th><th scope="col">Résultat</th><th scope="col">État</th><th scope="col" class="right"></th></tr></thead>
+              <tbody>
+                <% jobs.forEach(function (j) { %>
+                  <tr>
+                    <td style="max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<%= j.filename %>"><%= j.filename %></td>
+                    <td class="tiny"><%= dates.formatDateTime(j.created_at) %></td>
+                    <td class="tiny"><%= j.mode === 'update' ? 'Mise à jour' : (j.mode === 'upsert' ? 'Création + mise à jour' : (j.mode === 'preview' ? 'À qualifier' : 'Création')) %></td>
+                    <td class="num"><%= j.processed %>/<%= j.total_rows %></td>
+                    <td class="tiny">
+                      <%= j.created_count %> créé(s) · <%= j.updated_count %> mis à jour · <%= j.skipped_count %> ignoré(s)
+                      <% if (j.error_count || j.errors) { %> · <strong style="color:var(--danger)"><%= j.error_count || j.errors %> erreur(s)</strong><% } %>
+                    </td>
+                    <td><span class="pill pill--<%= toneOf(j.status) %>"><%= statusLabels[j.status] || j.status %></span></td>
+                    <td class="right">
+                      <span class="row-actions">
+                        <a class="btn btn--sm btn--quiet" href="/admin/import/<%= j.id %>">Ouvrir</a>
+                        <% if (j.status === 'done' || j.status === 'cancelled') { %>
+                          <a class="btn btn--sm btn--quiet" href="/admin/import/<%= j.id %>/rapport">Rapport</a>
+                        <% } %>
+                      </span>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------------- Colonne latérale ---------------- -->
+  <div>
+    <div class="panel">
+      <div class="panel-head"><h2>Exporter le catalogue</h2></div>
+      <div class="panel-body">
+        <p class="tiny muted" style="margin-top:0">
+          L’export reprend exactement la même structure que le modèle d’import : vous pouvez exporter,
+          modifier dans Excel, puis réimporter en mode « mise à jour ».
+        </p>
+        <form method="get" action="/admin/export/catalogue.xlsx" class="form-grid">
+          <div class="field">
+            <label for="exp-statut">Statut des articles</label>
+            <select id="exp-statut" name="statut">
+              <option value="">Tous</option>
+              <option value="published">Publiés</option>
+              <option value="draft">Brouillons</option>
+              <option value="archived">Archivés</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="exp-cat">Catégorie</label>
+            <select id="exp-cat" name="categorie">
+              <option value="">Toutes</option>
+              <% (function walk(nodes, depth) { nodes.forEach(function (n) { %>
+                <option value="<%= n.id %>"><%= '— '.repeat(depth) %><%= n.name %></option>
+                <% if (n.children && n.children.length) { walk(n.children, depth + 1); } %>
+              <% }); })(categories, 0) %>
+            </select>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn--sm" type="submit"><%- icon('download', 'sm') %> Excel (.xlsx)</button>
+            <button class="btn btn--sm btn--quiet" type="submit" formaction="/admin/export/catalogue.csv"><%- icon('download', 'sm') %> CSV</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Colonnes reconnues</h2><span class="hint"><%= columns.length %></span></div>
+      <div class="panel-body">
+        <p class="tiny muted" style="margin-top:0">
+          Chaque champ accepte plusieurs intitulés (français, anglais, abréviations) : la correspondance est
+          proposée automatiquement, vous pouvez toujours la corriger.
+        </p>
+        <ul style="margin:0;padding-left:18px;font-size:.86rem;columns:2;column-gap:var(--space-4)">
+          <% columns.forEach(function (c) { %>
+            <li style="break-inside:avoid">
+              <strong><%= c.label %></strong>
+              <% if (c.required) { %><span class="pill pill--warn" style="margin-left:4px">requis</span><% } %>
+              <% if (c.aliases && c.aliases.length) { %>
+                <span class="tiny muted" style="display:block">alias : <%= c.aliases.slice(0, 4).join(', ') %><%= c.aliases.length > 4 ? '…' : '' %></span>
+              <% } %>
+            </li>
+          <% }); %>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>État du catalogue</h2></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>Articles</dt><dd><%= productCounts.total %></dd>
+          <dt>Publiés</dt><dd><%= productCounts.published %></dd>
+          <dt>Brouillons</dt><dd><%= productCounts.draft %></dd>
+          <dt>Non confirmés</dt><dd><%= productCounts.notConfirmed %></dd>
+          <dt>Catégories</dt><dd><%= categories.length %></dd>
+        </dl>
+        <form method="post" action="/admin/import/reindexer" style="margin-top:var(--space-3)">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="btn btn--sm btn--quiet btn--block" type="submit">
+            <%- icon('refresh', 'sm') %> Reconstruire l’index de recherche
+          </button>
+        </form>
+        <p class="tiny muted" style="margin-top:var(--space-2)">
+          À faire après un import massif ou une restauration de sauvegarde.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

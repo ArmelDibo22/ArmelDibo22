@@ -1,0 +1,98 @@
+<%
+/**
+ * En-tête de l'espace d'administration : ouvre le document, la barre supérieure,
+ * la navigation latérale et la zone de contenu.
+ * Tous les `locals` spécifiques à l'administration sont optionnels : cette
+ * partial sert aussi aux pages d'erreur rendues hors session.
+ */
+const nav = (typeof adminNav !== 'undefined' && adminNav) ? adminNav : [];
+const user = (typeof adminUser !== 'undefined' && adminUser) ? adminUser : (typeof admin !== 'undefined' ? admin : null);
+const active = (typeof activeNav !== 'undefined' && activeNav) ? activeNav : '';
+const docTitle = (typeof title !== 'undefined' && title) ? `${title} · Administration` : 'Administration';
+const setupChecklist = (typeof adminChecklist !== 'undefined' && adminChecklist) ? adminChecklist : [];
+const pendingSetup = setupChecklist.filter((c) => !c.done).length;
+%>
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title><%= docTitle %></title>
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/admin.css">
+<style><%- theme.cssText %></style>
+<meta name="csrf-token" content="<%= csrfToken %>">
+</head>
+<body class="admin" data-density="<%= theme.density %>">
+
+<header class="admin-topbar">
+  <button class="admin-nav-toggle" type="button" data-admin-nav-toggle aria-label="Ouvrir la navigation" aria-expanded="false" aria-controls="admin-nav">
+    <%- icon('menu', 'md') %>
+  </button>
+
+  <a class="brand" href="/admin" style="color:#fff">
+    <span class="brand-mark">
+      <% if (store.logoKey) { %><img src="<%= mediaUrl(store.logoKey, 'thumb') %>" alt="" width="40" height="40">
+      <% } else { %><abbr title="<%= store.name %>" style="text-decoration:none"><%= (store.shortName || 'ETS').split(' ').filter(Boolean).slice(-2).map((w) => w[0]).join('') %></abbr><% } %>
+    </span>
+    <span class="brand-text">
+      <span class="brand-name" style="color:#fff"><%= store.shortName || store.name %></span>
+      <span class="brand-place" style="color:#b9c7dd">Administration</span>
+    </span>
+  </a>
+
+  <div class="admin-topbar-actions">
+    <% if (config.isDemo) { %><span class="demo-badge">Démo</span><% } %>
+    <% if (pendingSetup > 0) { %>
+      <a class="btn btn--sm" href="/admin/reglages" title="<%= pendingSetup %> élément(s) à compléter">
+        <%- icon('alert', 'sm') %> <%= pendingSetup %> à compléter
+      </a>
+    <% } %>
+    <a class="btn btn--sm" href="/" target="_blank" rel="noopener"><%- icon('external-link', 'sm') %> Voir la boutique</a>
+    <% if (user) { %>
+      <span class="admin-user">
+        <strong><%= user.fullName || user.full_name || user.email %></strong>
+        <%= user.role === 'admin' ? 'Administrateur' : 'Vendeur' %>
+      </span>
+      <form method="post" action="/admin/deconnexion" style="display:inline">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="btn btn--sm" type="submit" title="Se déconnecter"><%- icon('logout', 'sm') %><span class="visually-hidden">Se déconnecter</span></button>
+      </form>
+    <% } %>
+  </div>
+</header>
+
+<div class="admin-shell">
+  <nav class="admin-nav" id="admin-nav" data-admin-nav data-open="false" aria-label="Navigation administration">
+    <% nav.forEach(function (group) { %>
+      <div class="admin-nav-group">
+        <span class="group-label"><%= group.label %></span>
+        <ul class="admin-nav-list">
+          <% group.items.forEach(function (item) { %>
+            <li>
+              <a href="<%= item.href %>" <%- item.key === active ? 'aria-current="page"' : '' %>>
+                <span class="nav-icon"><%- icon(item.icon || 'chevron-right', 'sm') %></span>
+                <%= item.label %>
+                <% if (item.badge) { %><span class="nav-badge"><%= item.badge %></span><% } %>
+              </a>
+            </li>
+          <% }); %>
+        </ul>
+      </div>
+    <% }); %>
+
+    <% if (user) { %>
+      <div class="admin-nav-group" style="margin-top:var(--space-5);padding:0 var(--space-4)">
+        <a class="btn btn--ghost btn--sm btn--block" href="/admin/reglages"><%- icon('settings', 'sm') %> Réglages</a>
+        <form method="post" action="/admin/deconnexion" style="margin-top:var(--space-2)">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="btn btn--quiet btn--sm btn--block" type="submit"><%- icon('logout', 'sm') %> Déconnexion</button>
+        </form>
+      </div>
+    <% } %>
+  </nav>
+
+  <main class="admin-main" id="contenu">
+  <%- include('/partials/flashes') %>

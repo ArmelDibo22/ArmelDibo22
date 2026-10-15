@@ -1,0 +1,254 @@
+<%
+/**
+ * Catalogue, catégorie et résultats de recherche.
+ * Filtres et pagination entièrement serveur : on ne charge jamais tout le
+ * catalogue d'un coup (aucune limite d'articles côté code).
+ */
+const baseAction = activeCategory ? `/categorie/${activeCategory.slug}` : (isSearch ? '/recherche' : '/catalogue');
+const crumbs = activeCategory
+  ? breadcrumbTrail.map((c) => ({ label: c.name, href: `/categorie/${c.slug}` }))
+  : (isSearch ? [{ label: `Recherche : ${q}` }] : [{ label: 'Catalogue' }]);
+const bounds = facets.priceBounds || { min: 0, max: 0 };
+const priceMin = filters.priceMin != null && filters.priceMin !== '' ? filters.priceMin : '';
+const priceMax = filters.priceMax != null && filters.priceMax !== '' ? filters.priceMax : '';
+// Pastilles rappelant les filtres actifs (le bouton « Tout effacer » les retire).
+const activeChips = [];
+if (isSearch) activeChips.push(`« ${q} »`);
+(activeBrands || []).forEach((b) => {
+  const brand = brands.find((x) => x.id === b);
+  if (brand) activeChips.push(brand.name);
+});
+if (filters.condition) {
+  const cond = conditions.find((c) => c.value === filters.condition);
+  activeChips.push(cond ? cond.label : filters.condition);
+}
+if (filters.inStock) activeChips.push('En stock');
+if (filters.onPromo) activeChips.push('En promotion');
+if (priceMin !== '' || priceMax !== '') {
+  activeChips.push(`Prix ${priceMin || '0'} – ${priceMax || bounds.max || '∞'} ${store.currencyLabel}`);
+}
+%>
+<div class="container" style="padding-top:var(--space-4);padding-bottom:var(--space-6)">
+  <%- include('/partials/breadcrumb', { crumbs }) %>
+
+  <div class="catalog-head">
+    <div>
+      <h1 style="margin-bottom:2px"><%= activeCategory ? activeCategory.name : (isSearch ? 'Résultats de recherche' : 'Catalogue') %></h1>
+      <% if (activeCategory && activeCategory.description) { %>
+        <p class="muted" style="max-width:70ch;margin:0"><%= activeCategory.description %></p>
+      <% } else if (isSearch) { %>
+        <p class="muted" style="margin:0">
+          <%= pagination.total %> résultat(s) pour « <%= q %> »
+        </p>
+      <% } %>
+    </div>
+  </div>
+
+  <% if (activeCategory && activeCategory.children && activeCategory.children.length) { %>
+    <div class="active-filters" style="margin-bottom:var(--space-4)">
+      <% activeCategory.children.forEach(function (child) { %>
+        <a class="chip" href="/categorie/<%= child.slug %>"><%= child.name %><% if (child.product_count) { %> <span style="opacity:.6">(<%= child.product_count %>)</span><% } %></a>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <div class="catalog-layout">
+    <aside>
+      <details class="filters" data-filter-group open>
+        <summary style="cursor:pointer;font-weight:700;color:var(--brand);display:flex;align-items:center;gap:8px;padding-bottom:var(--space-3)">
+          <%- icon('filter', 'sm') %> Filtrer
+          <% if (activeChips.length) { %><span class="badge-count"><%= activeChips.length %></span><% } %>
+        </summary>
+
+        <form action="<%= baseAction %>" method="get" id="filter-form">
+          <% if (isSearch) { %><input type="hidden" name="q" value="<%= q %>"><% } %>
+
+          <% if (!activeCategory && facets.categories && facets.categories.length) { %>
+            <div class="filter-group">
+              <details open>
+                <summary>Catégories</summary>
+                <ul class="filter-list">
+                  <% facets.categories.forEach(function (c) { %>
+                    <li>
+                      <a href="/categorie/<%= c.slug %>" style="display:flex;align-items:center;gap:8px;padding:5px 0;color:var(--ink);font-size:.9rem">
+                        <%- icon('chevron-right', 'xs') %> <span style="flex:1 1 auto"><%= c.name %></span>
+                        <span class="filter-count"><%= c.n %></span>
+                      </a>
+                    </li>
+                  <% }); %>
+                </ul>
+              </details>
+            </div>
+          <% } %>
+
+          <% if (tree && tree.length && activeCategory) { %>
+            <div class="filter-group">
+              <details open>
+                <summary>Rayons</summary>
+                <ul class="filter-list">
+                  <% tree.forEach(function (root) { %>
+                    <li>
+                      <a href="/categorie/<%= root.slug %>" style="display:flex;gap:8px;padding:5px 0;color:var(--ink);font-size:.9rem;font-weight:600">
+                        <%- icon('chevron-right', 'xs') %> <%= root.name %>
+                      </a>
+                      <% if (root.children && root.children.length) { %>
+                        <ul class="filter-list" style="max-height:none;margin:0 0 0 12px">
+                          <% root.children.forEach(function (child) { %>
+                            <li><a href="/categorie/<%= child.slug %>" style="display:flex;gap:6px;padding:4px 0;color:var(--ink-2);font-size:.86rem">
+                              <span style="flex:1 1 auto"><%= child.name %></span><span class="filter-count"><%= child.product_count %></span>
+                            </a></li>
+                          <% }); %>
+                        </ul>
+                      <% } %>
+                    </li>
+                  <% }); %>
+                </ul>
+              </details>
+            </div>
+          <% } %>
+
+          <% if (brands && brands.length) { %>
+            <div class="filter-group">
+              <details <%= activeBrands.length ? 'open' : '' %>>
+                <summary>Marques</summary>
+                <ul class="filter-list">
+                  <% brands.forEach(function (b) { %>
+                    <li>
+                      <label>
+                        <input type="checkbox" name="marque" value="<%= b.id %>"
+                          <%= activeBrands.indexOf(b.id) !== -1 ? 'checked' : '' %> data-auto-submit>
+                        <span style="flex:1 1 auto"><%= b.name %></span>
+                        <span class="filter-count"><%= b.product_count != null ? b.product_count : '' %></span>
+                      </label>
+                    </li>
+                  <% }); %>
+                </ul>
+              </details>
+            </div>
+          <% } %>
+
+          <div class="filter-group">
+            <details open>
+              <summary>Prix (<%= store.currencyLabel %>)</summary>
+              <div class="field-row" style="margin-top:var(--space-3)">
+                <div>
+                  <label for="prix_min">Minimum</label>
+                  <input id="prix_min" type="number" name="prix_min" min="0" step="100" inputmode="numeric" value="<%= priceMin %>" placeholder="<%= bounds.min || 0 %>">
+                </div>
+                <div>
+                  <label for="prix_max">Maximum</label>
+                  <input id="prix_max" type="number" name="prix_max" min="0" step="100" inputmode="numeric" value="<%= priceMax %>" placeholder="<%= bounds.max || '' %>">
+                </div>
+              </div>
+              <p class="tiny muted" style="margin:6px 0 0">Prix constatés dans le catalogue : <%= money.format(bounds.min) %> à <%= money.format(bounds.max) %>.</p>
+            </details>
+          </div>
+
+          <div class="filter-group">
+            <details open>
+              <summary>État</summary>
+              <ul class="filter-list">
+                <% conditions.forEach(function (c) { %>
+                  <li>
+                    <label>
+                      <input type="radio" name="etat" value="<%= c.value %>" <%= filters.condition === c.value ? 'checked' : '' %> data-auto-submit>
+                      <span><%= c.label %></span>
+                    </label>
+                  </li>
+                <% }); %>
+                <li><label><input type="radio" name="etat" value="" <%= !filters.condition ? 'checked' : '' %> data-auto-submit><span>Tous les états</span></label></li>
+              </ul>
+            </details>
+          </div>
+
+          <div class="filter-group">
+            <details open>
+              <summary>Disponibilité</summary>
+              <label class="checkbox" style="margin-top:var(--space-3)">
+                <input type="checkbox" name="disponible" value="1" <%= filters.inStock ? 'checked' : '' %> data-auto-submit>
+                <span>Uniquement les articles en stock</span>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" name="promo" value="1" <%= filters.onPromo ? 'checked' : '' %> data-auto-submit>
+                <span>Uniquement les promotions en cours</span>
+              </label>
+            </details>
+          </div>
+
+          <noscript><button class="btn btn--block" type="submit">Appliquer les filtres</button></noscript>
+          <p style="margin:var(--space-3) 0 0">
+            <a class="btn btn--ghost btn--sm btn--block" href="<%= baseAction %>">Réinitialiser</a>
+          </p>
+        </form>
+      </details>
+    </aside>
+
+    <div>
+      <% if (activeChips.length) { %>
+        <div class="active-filters">
+          <% activeChips.forEach(function (chip) { %>
+            <span class="chip is-active" style="background:var(--brand);color:#fff;border-color:var(--brand)"><%= chip %></span>
+          <% }); %>
+          <a class="chip" href="<%= baseAction %>"><%- icon('close', 'xs') %> Tout effacer</a>
+        </div>
+      <% } %>
+
+      <div class="catalog-head">
+        <span class="count">
+          <% if (pagination.total) { %>
+            <%= pagination.from %>–<%= pagination.to %> sur <%= pagination.total %> article(s)
+          <% } else { %>
+            Aucun article ne correspond à ces critères
+          <% } %>
+        </span>
+        <form class="toolbar" action="<%= baseAction %>" method="get" aria-label="Trier les résultats">
+          <% if (isSearch) { %><input type="hidden" name="q" value="<%= q %>"><% } %>
+          <% (activeBrands || []).forEach(function (b) { %><input type="hidden" name="marque" value="<%= b %>"><% }); %>
+          <% if (filters.condition) { %><input type="hidden" name="etat" value="<%= filters.condition %>"><% } %>
+          <% if (filters.inStock) { %><input type="hidden" name="disponible" value="1"><% } %>
+          <% if (filters.onPromo) { %><input type="hidden" name="promo" value="1"><% } %>
+          <% if (priceMin !== '') { %><input type="hidden" name="prix_min" value="<%= priceMin %>"><% } %>
+          <% if (priceMax !== '') { %><input type="hidden" name="prix_max" value="<%= priceMax %>"><% } %>
+          <label class="visually-hidden" for="tri">Trier</label>
+          <select id="tri" name="tri" data-auto-submit>
+            <% sorts.forEach(function (s) { %>
+              <option value="<%= s.value %>" <%= (filters.sort || 'pertinence') === s.value ? 'selected' : '' %>><%= s.label %></option>
+            <% }); %>
+          </select>
+          <noscript><button class="btn btn--sm" type="submit">Trier</button></noscript>
+        </form>
+      </div>
+
+      <% if (items.length) { %>
+        <div class="product-grid product-grid--wide">
+          <% items.forEach(function (item, i) { %>
+            <%- include('/partials/product-card', { product: item, cardLazy: i > 3 }) %>
+          <% }); %>
+        </div>
+        <%- include('/partials/pagination', { pagination }) %>
+      <% } else { %>
+        <div class="state">
+          <%- icon('search', 'xl') %>
+          <h2>Aucun article trouvé</h2>
+          <p>
+            <% if (isSearch) { %>
+              Aucun résultat pour « <%= q %> » avec ces filtres. Essayez un terme plus court
+              (par exemple « cahier » plutôt que « cahier 200 pages A4 »), ou retirez des filtres.
+            <% } else { %>
+              Cette catégorie ne contient pas encore d’article publié.
+            <% } %>
+          </p>
+          <div class="btn-row" style="justify-content:center">
+            <a class="btn" href="/catalogue">Voir tout le catalogue</a>
+            <a class="btn btn--ghost" href="/contact"><%- icon('phone', 'sm') %> Demander cet article</a>
+          </div>
+          <% if (whatsappUrl) { %>
+            <p class="tiny muted" style="margin-top:var(--space-4)">
+              Vous pouvez aussi envoyer votre demande sur WhatsApp : ouvrir WhatsApp ne confirme ni commande ni paiement.
+            </p>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</div>

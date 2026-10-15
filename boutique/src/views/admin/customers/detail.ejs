@@ -1,0 +1,162 @@
+<%
+/** Fiche client : coordonnées, consentement, commandes, note interne, anonymisation. */
+const c = customer;
+const totalOrders = c.orders.length;
+const totalPaid = c.orders.reduce((sum, o) => sum + Number(o.amount_paid || 0), 0);
+const totalSpent = c.orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+%>
+<%- include('/admin/partials/header') %>
+
+<div class="admin-head">
+  <div>
+    <h1><%= c.full_name || 'Client' %></h1>
+    <p class="sub">
+      Fiche n° <%= c.id %> · créée le <%= dates.formatDate(c.created_at) %> ·
+      <%= totalOrders %> commande(s) · <%= money.format(totalSpent) %> commandés
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn--quiet" href="/admin/clients"><%- icon('arrow-left', 'sm') %> Liste</a>
+    <% if (c.phone) { %><a class="btn btn--ghost" href="tel:<%= String(c.phone).replace(/\D/g, '') %>"><%- icon('phone', 'sm') %> Appeler</a><% } %>
+  </div>
+</div>
+
+<div class="split split--2">
+  <div>
+    <div class="panel">
+      <div class="panel-head"><h2>Coordonnées</h2></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>Nom</dt><dd><%= c.full_name || '—' %></dd>
+          <dt>Téléphone</dt><dd><%= c.phone ? formatPhone(c.phone) : '—' %></dd>
+          <dt>E-mail</dt><dd><%= c.email || '— (non fourni)' %></dd>
+          <dt>Ville</dt><dd><%= c.city || '—' %></dd>
+          <% if (c.address) { %><dt>Adresse</dt><dd><%= c.address %></dd><% } %>
+          <dt>Compte</dt>
+          <dd><%= c.password_hash ? 'Mot de passe défini (empreinte chiffrée)' : 'Sans mot de passe — compte créé automatiquement' %></dd>
+          <dt>Dernière connexion</dt><dd><%= c.last_login_at ? dates.formatDateTime(c.last_login_at) : 'jamais' %></dd>
+          <dt>Total réglé</dt><dd><strong><%= money.format(totalPaid) %></strong></dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Commandes</h2><span class="hint"><%= totalOrders %></span></div>
+      <div class="panel-body panel-body--flush">
+        <% if (!c.orders.length) { %>
+          <p class="empty-row">Aucune commande rattachée à cette fiche.</p>
+        <% } else { %>
+          <div class="scroll-x">
+            <table class="data compact">
+              <caption class="visually-hidden">Commandes du client</caption>
+              <thead><tr><th scope="col">Référence</th><th scope="col">Date</th><th scope="col">Statuts</th><th scope="col" class="num">Total</th><th scope="col" class="right"></th></tr></thead>
+              <tbody>
+                <% c.orders.forEach(function (o) { %>
+                  <tr>
+                    <td class="mono"><%= o.reference %></td>
+                    <td class="tiny"><%= dates.formatDateTime(o.placed_at) %></td>
+                    <td>
+                      <span class="pill pill--<%= statusTone('order', o.status) %>"><%= labels.order[o.status] || o.status %></span>
+                      <span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span>
+                    </td>
+                    <td class="num"><%= money.format(o.total) %></td>
+                    <td class="right"><a class="btn btn--sm btn--quiet" href="/admin/commandes/<%= o.id %>">Ouvrir</a></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <% if (refunds && refunds.length) { %>
+      <div class="panel">
+        <div class="panel-head"><h2>Remboursements</h2></div>
+        <div class="panel-body panel-body--flush">
+          <table class="data compact">
+            <caption class="visually-hidden">Remboursements du client</caption>
+            <thead><tr><th scope="col">Date</th><th scope="col">Commande</th><th scope="col">Type</th><th scope="col" class="num">Montant</th><th scope="col">Statut</th></tr></thead>
+            <tbody>
+              <% refunds.forEach(function (r) { %>
+                <tr>
+                  <td class="tiny"><%= dates.formatDateTime(r.created_at) %></td>
+                  <td class="mono tiny"><a href="/admin/commandes/<%= r.order_id %>">#<%= r.order_id %></a></td>
+                  <td class="tiny"><%= r.kind %></td>
+                  <td class="num"><%= money.format(r.amount) %></td>
+                  <td><span class="pill pill--<%= r.status === 'done' ? 'success' : 'warn' %>"><%= r.status %></span></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    <% } %>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="panel-head"><h2>Consentement</h2></div>
+      <div class="panel-body">
+        <p class="tiny muted" style="margin-top:0">
+          Le consentement publicitaire est distinct de la commande : il peut être retiré à tout moment,
+          et son retrait n’affecte pas le traitement des achats.
+        </p>
+        <dl class="kv" style="margin-bottom:var(--space-3)">
+          <dt>État</dt>
+          <dd><span class="pill pill--<%= c.marketing_consent ? 'success' : 'neutral' %>"><%= c.marketing_consent ? 'Consentement donné' : 'Aucun consentement' %></span></dd>
+          <% if (c.consent_at) { %><dt>Enregistré le</dt><dd><%= dates.formatDateTime(c.consent_at) %></dd><% } %>
+        </dl>
+        <% if (canWrite) { %>
+          <form method="post" action="/admin/clients/<%= c.id %>/consentement" class="btn-row">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <% if (c.marketing_consent) { %>
+              <button class="btn btn--sm btn--ghost" type="submit" name="marketing" value="0"><%- icon('close', 'sm') %> Retirer le consentement</button>
+            <% } else { %>
+              <button class="btn btn--sm" type="submit" name="marketing" value="1"
+                      data-confirm-action="Enregistrer un consentement obtenu hors ligne ? À ne faire que si le client l’a explicitement donné.">
+                <%- icon('check', 'sm') %> Consentement donné
+              </button>
+            <% } %>
+          </form>
+        <% } %>
+      </div>
+    </div>
+
+    <% if (canWrite) { %>
+      <div class="panel">
+        <div class="panel-head"><h2>Note interne</h2></div>
+        <div class="panel-body">
+          <form method="post" action="/admin/clients/<%= c.id %>/note">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="field">
+              <label for="notes">Note (jamais visible par le client)</label>
+              <textarea id="notes" name="notes" rows="4" maxlength="2000"><%= c.notes || '' %></textarea>
+            </div>
+            <button class="btn btn--sm" type="submit"><%- icon('check', 'sm') %> Enregistrer</button>
+          </form>
+        </div>
+      </div>
+
+      <% if (adminUser.role === 'admin') { %>
+        <div class="panel" style="border-color:#f0c4c0">
+          <div class="panel-head"><h2 style="color:var(--danger)">Effacement</h2></div>
+          <div class="panel-body">
+            <p class="tiny muted" style="margin-top:0">
+              L’anonymisation supprime nom, téléphone et e-mail, et révoque les sessions.
+              Les commandes sont conservées (obligations comptables) mais ne permettent plus
+              d’identifier la personne.
+            </p>
+            <form method="post" action="/admin/clients/<%= c.id %>/anonymiser"
+                  data-confirm="Anonymiser définitivement cette fiche client ?">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button class="btn btn--danger btn--sm btn--block" type="submit"><%- icon('trash', 'sm') %> Anonymiser la fiche</button>
+            </form>
+          </div>
+        </div>
+      <% } %>
+    <% } %>
+  </div>
+</div>
+
+<%- include('/admin/partials/footer') %>

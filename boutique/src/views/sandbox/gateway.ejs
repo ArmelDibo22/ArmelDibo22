@@ -1,0 +1,142 @@
+<%
+/**
+ * Passerelle de démonstration.
+ * Imitation d'un écran Mobile Money, clairement identifiée comme telle : elle
+ * sert à éprouver le vrai circuit de notification signée (succès, échec,
+ * annulation, montant erroné, notification répétée).
+ */
+const o = order;
+const initials = String(method ? method.name : 'MM').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+const closed = ['paid', 'cancelled', 'refunded'].includes(o.payment_status) || o.status === 'cancelled';
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4);max-width:640px">
+  <div class="alert alert--warn">
+    <%- icon('alert', 'md') %>
+    <div>
+      <strong>Passerelle de démonstration — aucun argent réel</strong>
+      <p style="margin:4px 0 0">
+        Cet écran remplace temporairement l’interface du prestataire Mobile Money, qui n’est pas encore
+        connectée. Il envoie une vraie notification signée (HMAC) à la boutique, ce qui permet de tester
+        le circuit de validation : montant, devise, commande concernée et doublons.
+      </p>
+    </div>
+  </div>
+
+  <div class="tracking-card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:var(--space-4)">
+      <span class="pay-logo" style="width:52px;height:38px;background:<%= (method && method.color) || 'var(--brand)' %>"><%= initials %></span>
+      <div>
+        <strong style="color:var(--brand);display:block"><%= method ? method.name : 'Paiement mobile' %></strong>
+        <span class="tiny muted">Marchand : <%= store.name %><% if (method && method.merchant_ref) { %> · réf. <span class="mono"><%= method.merchant_ref %></span><% } %></span>
+      </div>
+    </div>
+
+    <dl class="kv">
+      <dt>Commande</dt><dd><span class="ref-badge"><%= o.reference %></span></dd>
+      <dt>Montant</dt><dd><strong class="price price--lg"><%= total %></strong></dd>
+      <dt>Devise</dt><dd><%= o.currency %> (<%= store.currencyLabel %>)</dd>
+      <dt>Statut actuel</dt>
+      <dd>
+        <span class="pill pill--<%= statusTone('payment', o.payment_status) %>"><%= labels.payment[o.payment_status] || o.payment_status %></span>
+      </dd>
+      <% if (payment) { %>
+        <dt>Tentative</dt>
+        <dd><span class="mono"><%= payment.provider %></span> · <%= payment.status %><% if (payment.provider_reference) { %> · <span class="mono"><%= payment.provider_reference %></span><% } %></dd>
+      <% } %>
+    </dl>
+  </div>
+
+  <% if (closed) { %>
+    <div class="tracking-card" style="margin-top:var(--space-4)">
+      <h2 style="font-size:1.05rem">Paiement terminé</h2>
+      <p class="subtle">Cette commande est déjà réglée ou close : une nouvelle tentative sera refusée par la boutique.</p>
+      <div class="btn-row">
+        <a class="btn" href="/commande/confirmation/<%= o.tracking_token %>">Voir la confirmation</a>
+        <a class="btn btn--ghost" href="/suivi/<%= o.tracking_token %>">Suivi</a>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="tracking-card" style="margin-top:var(--space-4)">
+      <h2 style="font-size:1.05rem">Simuler un résultat</h2>
+      <p class="tiny muted">Chaque bouton envoie une notification signée à <span class="mono">/webhooks/sandbox</span>.</p>
+
+      <form method="post" action="/paiements/simuler/<%= o.reference %>">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+        <div class="field-row" style="margin-top:var(--space-3)">
+          <div class="field">
+            <label for="amount">Montant notifié</label>
+            <input id="amount" name="amount" type="number" min="0" step="1" inputmode="numeric"
+                   value="<%= money.plain(o.total) %>" aria-describedby="amount-help">
+            <span id="amount-help" class="field-help">
+              Modifiez-le (par ex. <%= money.plain(Math.max(0, o.total - 500)) %>) pour vérifier que la boutique
+              refuse un montant différent du total de la commande.
+            </span>
+          </div>
+          <div class="field">
+            <label for="currency">Devise notifiée</label>
+            <select id="currency" name="currency">
+              <option value="<%= o.currency %>" selected><%= o.currency %></option>
+              <option value="EUR">EUR (incorrecte, doit être refusée)</option>
+              <option value="USD">USD (incorrecte, doit être refusée)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="repeat">Envois successifs</label>
+            <select id="repeat" name="repeat">
+              <option value="1">1 (normal)</option>
+              <option value="3">3 (test de doublon)</option>
+              <option value="5">5 (test de doublon renforcé)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="provider_reference">Référence prestataire (facultatif)</label>
+          <input id="provider_reference" name="provider_reference" type="text" maxlength="80"
+                 placeholder="SIM-<%= o.reference %>-…" aria-describedby="prov-help">
+          <span id="prov-help" class="field-help">
+            Identifiant unique côté prestataire. Deux notifications avec la même référence ne créent qu’un seul paiement.
+          </span>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" type="submit" name="action" value="succes"><%- icon('check', 'sm') %> Paiement réussi</button>
+          <button class="btn btn--ghost" type="submit" name="action" value="echec"><%- icon('close', 'sm') %> Paiement échoué</button>
+          <button class="btn btn--quiet" type="submit" name="action" value="annulation"><%- icon('alert', 'sm') %> Client annule</button>
+        </div>
+      </form>
+    </div>
+  <% } %>
+
+  <% if (alreadyNotified && alreadyNotified.length) { %>
+    <div class="tracking-card" style="margin-top:var(--space-4)">
+      <h2 style="font-size:1.05rem">Dernières notifications reçues</h2>
+      <div class="table-wrap" style="border:0">
+        <table class="data compact">
+          <caption class="visually-hidden">Journal des notifications de démonstration</caption>
+          <thead><tr><th scope="col">Reçue le</th><th scope="col">Événement</th><th scope="col">Type</th><th scope="col">Signature</th><th scope="col">Réponse</th></tr></thead>
+          <tbody>
+            <% alreadyNotified.forEach(function (ev) { %>
+              <tr>
+                <td class="tiny"><%= dates.formatDateTime(ev.received_at) %></td>
+                <td class="mono tiny"><%= ev.event_id %></td>
+                <td><span class="pill"><%= ev.kind %></span></td>
+                <td><span class="pill pill--<%= ev.signature_ok ? 'success' : 'danger' %>"><%= ev.signature_ok ? 'valide' : 'refusée' %></span></td>
+                <td><span class="pill pill--<%= ev.status === 'processed' ? 'success' : (ev.status === 'duplicate' ? 'info' : 'warn') %>"><%= ev.status %></span></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <p class="tiny muted" style="margin-top:var(--space-3)">
+        Une notification répétée (même identifiant d’événement) doit répondre « doublon » sans modifier la commande,
+        et une signature invalide doit être rejetée.
+      </p>
+    </div>
+  <% } %>
+
+  <p class="center" style="margin-top:var(--space-5)">
+    <a class="btn btn--ghost btn--sm" href="/commande/confirmation/<%= o.tracking_token %>">Retour à la commande</a>
+  </p>
+</div>

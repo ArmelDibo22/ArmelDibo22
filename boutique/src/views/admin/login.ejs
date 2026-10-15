@@ -1,0 +1,66 @@
+<%
+/** Connexion à l'espace d'administration (document minimal, sans navigation). */
+const errs = (typeof errors !== 'undefined' && errors) ? errors : {};
+const v = (typeof values !== 'undefined' && values) ? values : {};
+%>
+<main class="container" style="padding:var(--space-7) var(--space-4);max-width:460px">
+  <div style="text-align:center;margin-bottom:var(--space-5)">
+    <span class="brand-mark" style="width:56px;height:56px;font-size:1.1rem;margin:0 auto var(--space-3)">
+      <% if (store.logoKey) { %><img src="<%= mediaUrl(store.logoKey, 'thumb') %>" alt="" width="56" height="56">
+      <% } else { %><abbr title="<%= store.name %>" style="text-decoration:none"><%= (store.shortName || 'ETS').split(' ').filter(Boolean).slice(-2).map((w) => w[0]).join('') %></abbr><% } %>
+    </span>
+    <h1 style="margin-bottom:2px">Espace d’administration</h1>
+    <p class="muted" style="margin:0"><%= store.name %></p>
+  </div>
+
+  <div class="auth-card" style="margin:0">
+    <form method="post" action="/admin/connexion" novalidate>
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="suite" value="<%= suite %>">
+
+      <div class="field">
+        <label for="email">Adresse e-mail</label>
+        <input id="email" name="email" type="email" required autocomplete="username" autofocus
+               value="<%= v.email || '' %>" aria-invalid="<%= errs.email ? 'true' : 'false' %>">
+        <% if (errs.email) { %><span class="field-error" role="alert"><%= errs.email %></span><% } %>
+      </div>
+
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <input id="password" name="password" type="password" required autocomplete="current-password"
+               aria-describedby="pwd-help">
+        <span id="pwd-help" class="field-help">
+          Les tentatives sont limitées et journalisées. En cas d’oubli, la réinitialisation se fait
+          en ligne de commande sur le serveur (<span class="mono">npm run seed</span> crée le premier administrateur).
+        </span>
+      </div>
+
+      <button class="btn btn--block btn--lg" type="submit"><%- icon('lock', 'sm') %> Se connecter</button>
+    </form>
+
+    <p class="tiny muted" style="margin-top:var(--space-4)">
+      <a href="/">← Retour à la boutique</a>
+    </p>
+  </div>
+
+  <% if (!hasAdmin) { %>
+    <div class="alert alert--warn" style="margin-top:var(--space-4)">
+      <%- icon('alert', 'md') %>
+      <div>
+        <strong>Aucun compte administrateur</strong>
+        <p style="margin:4px 0 0">
+          Exécutez <span class="mono">npm run seed</span> dans le dossier <span class="mono">boutique/</span>
+          pour créer le premier administrateur à partir des variables <span class="mono">BOOTSTRAP_ADMIN_EMAIL</span>
+          et <span class="mono">BOOTSTRAP_ADMIN_PASSWORD</span>.
+        </p>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (config.isDemo) { %>
+    <div class="alert alert--info" style="margin-top:var(--space-4)">
+      <%- icon('info', 'md') %>
+      <span>Base de démonstration : les données sont séparées des données réelles et peuvent être réinitialisées.</span>
+    </div>
+  <% } %>
+</main>

@@ -1,0 +1,336 @@
+<%
+/**
+ * Tunnel de commande — une seule page, récapitulatif complet avant validation.
+ * Les montants affichés viennent du serveur ; le recalcul en direct passe par
+ * /commande/frais, qui refait le calcul côté serveur.
+ */
+const lines = (cart && cart.items) || [];
+const shippingInfo = totals.shipping || {};
+const isQuote = Boolean(totals.quoteRequired);
+const shippingLabel = isQuote
+  ? 'Livraison sur devis'
+  : (shippingInfo.status === 'free' ? 'Offerte' : money.format(shippingInfo.amount || 0));
+const problems = totals.problems || [];
+const errs = (typeof errors !== 'undefined' && errors) ? errors : {};
+const v = values || {};
+const chosenMethod = v.paymentMethod || (methods.find((m) => m.allowed) || {}).code || '';
+const deliveryZonesList = deliveryZones || [];
+%>
+<div class="container" style="padding-top:var(--space-4);padding-bottom:var(--space-6)">
+  <%- include('/partials/breadcrumb', { crumbs: [{ label: 'Panier', href: '/panier' }, { label: 'Commande' }] }) %>
+  <h1>Valider ma commande</h1>
+  <p class="muted" style="margin-bottom:var(--space-5)">
+    Commande sans compte obligatoire. Les prix, frais et disponibilités sont vérifiés une dernière fois
+    au moment de l’enregistrement.
+  </p>
+
+  <% if (!lines.length) { %>
+    <div class="state">
+      <%- icon('cart', 'xl') %>
+      <h2>Votre panier est vide</h2>
+      <p>Ajoutez des articles avant de passer commande.</p>
+      <a class="btn" href="/catalogue">Voir le catalogue</a>
+    </div>
+  <% } else { %>
+
+  <form method="post" action="/commande" data-checkout-form id="form-commande" data-mode="<%= mode %>" novalidate>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="hidden" name="idempotency_key" value="<%= idempotencyKey %>">
+    <input type="hidden" name="expected_total" value="<%= isQuote ? '' : totals.total %>" data-expected-total>
+    <input type="hidden" name="expected_zone" value="<%= selectedZone ? selectedZone.id : '' %>" data-expected-zone>
+
+    <% if (problems.length) { %>
+      <div class="alert alert--error">
+        <%- icon('alert', 'md') %>
+        <div>
+          <strong>Certains articles ne peuvent pas être commandés en l’état</strong>
+          <ul style="margin:6px 0 0;padding-left:18px">
+            <% problems.forEach(function (pr) { %><li><%= pr.message %></li><% }); %>
+          </ul>
+          <p style="margin:8px 0 0"><a href="/panier">Corriger mon panier</a></p>
+        </div>
+      </div>
+    <% } %>
+
+    <div class="cart-layout">
+      <div class="checkout-steps">
+        <!-- ---------------- Étape 1 ---------------- -->
+        <section class="step" aria-labelledby="titre-coordonnees">
+          <h2 id="titre-coordonnees">Vos coordonnées</h2>
+
+          <% if (customer) { %>
+            <p class="callout" style="margin-bottom:var(--space-4)">
+              Connecté en tant que <strong><%= customer.full_name || customer.email || customer.phone %></strong>.
+              Vos coordonnées sont pré-remplies ; vous pouvez les corriger.
+            </p>
+          <% } else if (guestCheckout) { %>
+            <p class="tiny muted" style="margin-bottom:var(--space-4)">
+              Aucun compte n’est nécessaire. Nous utilisons ces informations uniquement pour cette commande
+              et son suivi. <a href="/compte/connexion">Vous avez déjà un compte ?</a>
+            </p>
+          <% } %>
+
+          <div class="field">
+            <label for="nom">Nom et prénoms <span class="required-mark" aria-hidden="true">*</span></label>
+            <input id="nom" name="nom" type="text" autocomplete="name" required maxlength="160"
+                   value="<%= v.fullName || '' %>" aria-invalid="<%= errs.fullName ? 'true' : 'false' %>"
+                   aria-describedby="nom-help">
+            <span id="nom-help" class="field-help">Tel qu’il doit apparaître sur le colis ou la facture.</span>
+            <% if (errs.fullName) { %><span class="field-error"><%= errs.fullName %></span><% } %>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="telephone">Téléphone <span class="required-mark" aria-hidden="true">*</span></label>
+              <input id="telephone" name="telephone" type="tel" autocomplete="tel" required
+                     inputmode="tel" placeholder="07 58 11 38 57" value="<%= v.phone || '' %>"
+                     aria-invalid="<%= errs.phone ? 'true' : 'false' %>" aria-describedby="tel-help">
+              <span id="tel-help" class="field-help">Numéro ivoirien à 10 chiffres. Sert à vous joindre pour la livraison.</span>
+              <% if (errs.phone) { %><span class="field-error"><%= errs.phone %></span><% } %>
+            </div>
+            <div class="field">
+              <label for="email">E-mail <%= emailRequired ? '' : '(facultatif)' %><% if (emailRequired) { %> <span class="required-mark" aria-hidden="true">*</span><% } %></label>
+              <input id="email" name="email" type="email" autocomplete="email" <%= emailRequired ? 'required' : '' %>
+                     value="<%= v.email || '' %>" aria-describedby="email-help"
+                     aria-invalid="<%= errs.email ? 'true' : 'false' %>">
+              <span id="email-help" class="field-help">
+                <%= emailRequired ? 'Nécessaire pour recevoir le suivi de commande.' : 'Non obligatoire : le suivi fonctionne avec la référence et votre téléphone.' %>
+              </span>
+              <% if (errs.email) { %><span class="field-error"><%= errs.email %></span><% } %>
+            </div>
+          </div>
+
+          <div class="field" style="margin-bottom:0">
+            <label for="note">Précisions pour la boutique (facultatif)</label>
+            <textarea id="note" name="note" maxlength="1000" rows="3" placeholder="Heure de passage souhaitée, couleur de rechange acceptée, point de repère…"><%= v.note || '' %></textarea>
+          </div>
+        </section>
+
+        <!-- ---------------- Étape 2 ---------------- -->
+        <section class="step" aria-labelledby="titre-reception">
+          <h2 id="titre-reception">Mode de réception</h2>
+
+          <div class="option-grid" role="radiogroup" aria-label="Mode de réception">
+            <label class="option-card">
+              <input type="radio" name="mode" value="pickup" <%= mode === 'pickup' ? 'checked' : '' %> required>
+              <span style="flex:1 1 auto">
+                <span class="o-title"><%- icon('store', 'sm') %> Retrait en boutique</span>
+                <span class="o-meta">
+                  <%= store.city %><% if (store.addressConfirmed && store.address) { %> — <%= store.address %><% } %>
+                  · aucun frais de livraison
+                </span>
+              </span>
+            </label>
+            <label class="option-card">
+              <input type="radio" name="mode" value="delivery" <%= mode === 'delivery' ? 'checked' : '' %>>
+              <span style="flex:1 1 auto">
+                <span class="o-title"><%- icon('truck', 'sm') %> Livraison</span>
+                <span class="o-meta">
+                  <% if (deliveryZonesList.length) { %><%= deliveryZonesList.map((z) => z.name).join(' · ') %><% } else { %>Zones en cours de configuration<% } %>
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div data-block="pickup" <%= mode === 'pickup' ? '' : 'hidden' %> style="margin-top:var(--space-4)">
+            <div class="callout">
+              <strong>Retrait en boutique à <%= store.city %></strong>
+              <% if (shippingNote) { %><p style="margin:6px 0 0"><%= shippingNote %></p><% } %>
+              <% if (store.hoursStatus === 'confirmed' && store.hours.length) { %>
+                <p style="margin:6px 0 0">Horaires : <%= store.hours.map((h) => `${h.day} ${h.closed ? 'fermé' : `${h.open}–${h.close}`}`).join(' · ') %></p>
+              <% } else { %>
+                <p style="margin:6px 0 0">Les horaires de retrait vous seront confirmés par téléphone après validation de la commande.</p>
+              <% } %>
+              <% if (store.mapsUrl) { %>
+                <p style="margin:8px 0 0"><a href="<%= store.mapsUrl %>" target="_blank" rel="noopener noreferrer"><%- icon('map-pin', 'xs') %> Voir l’itinéraire</a></p>
+              <% } %>
+            </div>
+          </div>
+
+          <div data-block="delivery" <%= mode === 'delivery' ? '' : 'hidden' %> style="margin-top:var(--space-4)">
+            <% if (!deliveryZonesList.length) { %>
+              <div class="alert alert--warn">
+                <%- icon('alert', 'md') %>
+                <span>Aucune zone de livraison n’est encore configurée. Choisissez le retrait en boutique ou contactez la boutique.</span>
+              </div>
+            <% } else { %>
+              <fieldset style="margin-bottom:var(--space-4)">
+                <legend>Destination</legend>
+                <div class="option-grid" role="radiogroup" aria-label="Zone de livraison">
+                  <% deliveryZonesList.forEach(function (z) { %>
+                    <label class="option-card">
+                      <input type="radio" name="zone" value="<%= z.id %>" <%= selectedZone && selectedZone.id === z.id ? 'checked' : '' %>>
+                      <span style="flex:1 1 auto">
+                        <span class="o-title"><%= z.name %></span>
+                        <span class="o-meta">
+                          <% if (z.eta_text) { %><%= z.eta_text %><% } %>
+                          <% if (z.requires_quote) { %> · <strong>tarif sur devis</strong><% } %>
+                          <% if (z.free_over) { %> · offerte dès <%= money.format(z.free_over) %><% } %>
+                          <% if (!z.cod_allowed) { %> · paiement à la livraison non disponible<% } %>
+                        </span>
+                        <% if (z.conditions_text) { %><span class="o-meta tiny" style="display:block"><%= z.conditions_text %></span><% } %>
+                      </span>
+                    </label>
+                  <% }); %>
+                </div>
+              </fieldset>
+            <% } %>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="ville">Ville <span class="required-mark" aria-hidden="true">*</span></label>
+                <input id="ville" name="ville" type="text" autocomplete="address-level2" maxlength="120" value="<%= v.city || '' %>">
+              </div>
+              <div class="field">
+                <label for="quartier">Quartier</label>
+                <input id="quartier" name="quartier" type="text" autocomplete="address-level3" maxlength="120" value="<%= v.quarter || '' %>">
+              </div>
+            </div>
+            <div class="field">
+              <label for="adresse">Adresse / repère de livraison <span class="required-mark" aria-hidden="true">*</span></label>
+              <input id="adresse" name="adresse" type="text" autocomplete="street-address" maxlength="240" value="<%= v.address || '' %>"
+                     aria-describedby="adresse-help">
+              <span id="adresse-help" class="field-help">Quartier et adresse suffisent ; ajoutez un point de repère si besoin.</span>
+            </div>
+            <div class="field">
+              <label for="repere">Point de repère (facultatif)</label>
+              <input id="repere" name="repere" type="text" maxlength="200" value="<%= v.landmark || '' %>" placeholder="Ex. : en face de la pharmacie, portail bleu">
+            </div>
+
+            <details style="margin-bottom:var(--space-4)">
+              <summary style="cursor:pointer;font-weight:600;color:var(--brand)">Livrer à une autre personne</summary>
+              <div class="field-row" style="margin-top:var(--space-3)">
+                <div class="field">
+                  <label for="destinataire">Nom du destinataire</label>
+                  <input id="destinataire" name="destinataire" type="text" maxlength="160" value="<%= v.recipientName || '' %>">
+                </div>
+                <div class="field">
+                  <label for="destinataire_tel">Téléphone du destinataire</label>
+                  <input id="destinataire_tel" name="destinataire_tel" type="tel" inputmode="tel" maxlength="30" value="<%= v.recipientPhone || '' %>">
+                </div>
+              </div>
+            </details>
+
+            <div class="quote-box" data-quote-box <%= isQuote ? '' : 'hidden' %>>
+              <strong>Livraison sur devis.</strong>
+              <%= quoteNote || 'Aucun tarif n’est défini pour cette destination. La boutique vous proposera un montant : vous devrez l’accepter avant tout paiement. Aucun frais inconnu ne vous sera présenté comme offert.' %>
+            </div>
+
+            <noscript>
+              <div class="notice" style="margin-top:var(--space-3)">
+                Sans JavaScript, les frais de livraison ne se recalculent pas automatiquement.
+                Après avoir choisi votre destination, cliquez sur
+                <button class="btn btn--sm btn--quiet" type="submit" formmethod="get" formaction="/commande" style="margin:0 4px">Recalculer les frais</button>
+                (vos coordonnées sont conservées).
+              </div>
+            </noscript>
+          </div>
+        </section>
+
+        <!-- ---------------- Étape 3 ---------------- -->
+        <section class="step" aria-labelledby="titre-paiement">
+          <h2 id="titre-paiement">Moyen de paiement</h2>
+          <div data-methods>
+            <%- include('/partials/checkout-methods', { methods, mode, zone: selectedZone, selectedMethod: chosenMethod, totals }) %>
+          </div>
+        </section>
+      </div>
+
+      <!-- ---------------- Récapitulatif ---------------- -->
+      <aside>
+        <div class="summary">
+          <h2>Récapitulatif</h2>
+
+          <ul style="list-style:none;margin:0 0 var(--space-3);padding:0;max-height:260px;overflow-y:auto">
+            <% totals.items.forEach(function (it) { %>
+              <li style="display:flex;gap:10px;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.88rem">
+                <span style="flex:1 1 auto;min-width:0">
+                  <strong style="display:block;font-weight:600;color:var(--ink)"><%= it.name %></strong>
+                  <span class="tiny muted"><%= it.qty %> × <%= money.format(it.unitPrice) %><%= it.optionsLabel ? ' · ' + it.optionsLabel : '' %></span>
+                </span>
+                <span class="nowrap" style="font-weight:600"><%= money.format(it.lineTotal) %></span>
+              </li>
+            <% }); %>
+          </ul>
+
+          <div class="summary-row">
+            <span>Sous-total</span><strong><%= money.format(totals.subtotal) %></strong>
+          </div>
+          <% if (totals.discount > 0) { %>
+            <div class="summary-row"><span>Remise</span><strong>− <%= money.format(totals.discount) %></strong></div>
+          <% } %>
+          <div class="summary-row">
+            <span><%= mode === 'pickup' ? 'Retrait en boutique' : 'Livraison' %></span>
+            <strong data-sum-shipping><%= mode === 'pickup' ? 'Sans frais' : shippingLabel %></strong>
+          </div>
+          <% if (shippingInfo.etaText) { %>
+            <div class="summary-row tiny muted"><span>Délai indiqué</span><span data-sum-eta><%= shippingInfo.etaText %></span></div>
+          <% } else { %>
+            <div class="summary-row tiny muted" hidden><span>Délai indiqué</span><span data-sum-eta></span></div>
+          <% } %>
+          <div class="summary-row summary-row--total">
+            <span>Total</span>
+            <span data-sum-total><%= isQuote ? `${money.format(totals.subtotal)} + devis` : money.format(totals.total) %></span>
+          </div>
+
+          <p class="summary-note" data-shipping-note>
+            <% if (mode === 'pickup') { %>
+              Vous réglez votre commande selon le moyen choisi, puis retirez vos articles en boutique à <%= store.city %>.
+            <% } else if (isQuote) { %>
+              Aucun tarif de livraison n’est défini pour cette destination : votre commande sera enregistrée
+              « sur devis ». La boutique vous proposera un montant et vous devrez l’accepter avant le paiement.
+            <% } else { %>
+              Frais de livraison inclus dans le total ci-dessus, calculés selon la destination et le poids du colis.
+            <% } %>
+          </p>
+
+          <div class="field" style="margin-top:var(--space-4)">
+            <label class="checkbox">
+              <input type="checkbox" name="cgu" value="1" required <%= v.terms ? 'checked' : '' %>>
+              <span>
+                <strong>J’ai vérifié le récapitulatif</strong>
+                et j’accepte les
+                <a href="/informations/conditions" target="_blank" rel="noopener">conditions de vente</a>
+                ainsi que la <a href="/informations/livraison-retours" target="_blank" rel="noopener">politique de livraison et de retour</a>.
+              </span>
+            </label>
+            <% if (errs.termsAccepted || errs.terms) { %><span class="field-error"><%= errs.termsAccepted || errs.terms %></span><% } %>
+          </div>
+
+          <% if (marketingConsentEnabled) { %>
+            <div class="field">
+              <label class="checkbox">
+                <input type="checkbox" name="marketing" value="1" <%= v.marketing ? 'checked' : '' %>>
+                <span>
+                  J’accepte de recevoir des informations sur les nouveautés et promotions (facultatif, retrait possible à tout moment).
+                  <span class="tiny muted" style="display:block">Ce consentement est indépendant de la commande : la refuser ne change rien au traitement de votre achat.</span>
+                </span>
+              </label>
+            </div>
+          <% } %>
+
+          <button class="btn btn--lg btn--block" type="submit" <%= problems.length ? 'disabled' : '' %>>
+            <%- icon('check', 'md') %> Confirmer la commande
+          </button>
+
+          <p class="tiny muted center" style="margin-top:var(--space-3)">
+            Aucune somme n’est débitée avant confirmation du moyen de paiement choisi.
+            Vous recevrez une référence et un lien de suivi personnel.
+          </p>
+
+          <% if (whatsappUrl) { %>
+            <p style="margin-top:var(--space-3);border-top:1px solid var(--border);padding-top:var(--space-3)">
+              <a class="btn btn--whatsapp btn--sm btn--block" href="<%= whatsappUrl %>" target="_blank" rel="noopener noreferrer">
+                <%- icon('whatsapp', 'sm') %> Une question avant de commander ?
+              </a>
+              <span class="tiny muted" style="display:block;margin-top:6px;text-align:center">
+                <%= store.whatsappDisclaimer || 'Ouvrir WhatsApp ne confirme ni une commande ni un paiement.' %>
+              </span>
+            </p>
+          <% } %>
+        </div>
+      </aside>
+    </div>
+  </form>
+  <% } %>
+</div>

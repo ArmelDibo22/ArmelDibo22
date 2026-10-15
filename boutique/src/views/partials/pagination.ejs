@@ -1,0 +1,56 @@
+<%
+/**
+ * Pagination serveur. Attend `pagination` = {page, pages, total, from, to, perPage}.
+ * Conserve automatiquement tous les filtres présents dans l'URL courante.
+ */
+const p = pagination || {};
+const base = new URL(currentUrl, config.publicUrl);
+const pageUrl = (n) => {
+  const u = new URL(base.toString());
+  if (n <= 1) u.searchParams.delete('page'); else u.searchParams.set('page', String(n));
+  return u.pathname + u.search;
+};
+const window_ = 2;
+const from = Math.max(1, (p.page || 1) - window_);
+const to = Math.min(p.pages || 1, (p.page || 1) + window_);
+const nums = [];
+for (let i = from; i <= to; i += 1) nums.push(i);
+%>
+<% if (p.pages > 1) { %>
+<nav class="pagination" aria-label="Pagination">
+  <% if (p.hasPrev) { %>
+    <a href="<%= pageUrl(p.page - 1) %>" rel="prev" aria-label="Page précédente"><%- icon('chevron-left', 'sm') %></a>
+  <% } else { %>
+    <span aria-disabled="true" style="opacity:.4"><%- icon('chevron-left', 'sm') %></span>
+  <% } %>
+
+  <% if (from > 1) { %>
+    <a href="<%= pageUrl(1) %>" aria-label="Page 1">1</a>
+    <% if (from > 2) { %><span class="gap" aria-hidden="true">…</span><% } %>
+  <% } %>
+
+  <% nums.forEach(function (n) { %>
+    <% if (n === p.page) { %>
+      <span aria-current="page" aria-label="Page <%= n %>"><%= n %></span>
+    <% } else { %>
+      <a href="<%= pageUrl(n) %>" aria-label="Page <%= n %>"><%= n %></a>
+    <% } %>
+  <% }); %>
+
+  <% if (to < p.pages) { %>
+    <% if (to < p.pages - 1) { %><span class="gap" aria-hidden="true">…</span><% } %>
+    <a href="<%= pageUrl(p.pages) %>" aria-label="Page <%= p.pages %>"><%= p.pages %></a>
+  <% } %>
+
+  <% if (p.hasNext) { %>
+    <a href="<%= pageUrl(p.page + 1) %>" rel="next" aria-label="Page suivante"><%- icon('chevron-right', 'sm') %></a>
+  <% } else { %>
+    <span aria-disabled="true" style="opacity:.4"><%- icon('chevron-right', 'sm') %></span>
+  <% } %>
+</nav>
+<p class="pagination-meta">
+  <% if (p.total) { %>Affichage de <%= p.from %> à <%= p.to %> sur <%= p.total %> article(s)<% } else { %>Aucun article<% } %>
+</p>
+<% } else if (p.total) { %>
+<p class="pagination-meta"><%= p.total %> article(s)</p>
+<% } %>

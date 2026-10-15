@@ -1,0 +1,714 @@
+<%
+/**
+ * Formulaire produit (création et modification).
+ * Objectif : aucune connaissance technique requise. Les champs sont regroupés
+ * par intention, les termes techniques sont expliqués, et chaque refus de
+ * publication est justifié à l'écran.
+ */
+const isNew = !product;
+const action = isNew ? '/admin/produits/nouveau' : `/admin/produits/${product.id}`;
+const v = values || {};
+const errs = errors || {};
+const err = (field) => (errs[field] ? `<span class="field-error">${errs[field]}</span>` : '');
+const flatTree = [];
+(function walk(nodes, depth) {
+  nodes.forEach(function (n) {
+    flatTree.push({ id: n.id, name: n.name, depth: depth, archived: n.archived });
+    if (n.children && n.children.length) walk(n.children, depth + 1);
+  });
+})(tree, 0);
+const variantRows = (variants || []).map((vr, i) => ({
+  ...vr,
+  index: i,
+  optionsList: Object.entries(vr.options || {}).slice(0, 4),
+  stockValue: vr.stock !== undefined && vr.stock !== null ? vr.stock : (vr.qty_on_hand !== undefined ? vr.qty_on_hand : ''),
+}));
+const attributeRows = attributes || [];
+const kitRows = (kitComponents || []).map((k) => ({
+  ...k,
+  name: k.product_name || `Article n° ${k.component_product_id}`,
+  sku: k.product_sku || '',
+}));
+const available = stockItem ? stockItem.qty_on_hand - stockItem.qty_reserved : 0;
+const purchasableNow = purchasability ? purchasability.ok : false;
+%>
+<%- include('/admin/partials/header') %>
+
+<form method="post" action="<%= action %>" enctype="multipart/form-data" id="form-produit" novalidate>
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+  <div class="admin-head">
+    <div>
+      <h1><%= isNew ? 'Nouvel article' : v.name || 'Modifier l’article' %></h1>
+      <p class="sub">
+        <% if (isNew) { %>
+          Renseignez au minimum le nom, la catégorie et le prix. Vous pourrez compléter plus tard.
+        <% } else { %>
+          Référence <span class="mono"><%= product.sku || '—' %></span> ·
+          créé le <%= dates.formatDate(product.created_at) %> ·
+          modifié le <%= dates.formatDateTime(product.updated_at) %>
+          <% if (product.published_at) { %> · publié le <%= dates.formatDate(product.published_at) %><% } %>
+        <% } %>
+      </p>
+    </div>
+    <div class="btn-row">
+      <a class="btn btn--quiet" href="/admin/produits"><%- icon('arrow-left', 'sm') %> Liste</a>
+      <% if (!isNew) { %>
+        <a class="btn btn--quiet" href="/produit/<%= product.slug %>" target="_blank" rel="noopener"><%- icon('eye', 'sm') %> Fiche publique</a>
+        <form method="post" action="/admin/produits/<%= product.id %>/dupliquer" style="display:inline">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="btn btn--quiet" type="submit"><%- icon('copy', 'sm') %> Dupliquer</button>
+        </form>
+      <% } %>
+      <button class="btn" type="submit"><%- icon('check', 'sm') %> Enregistrer</button>
+    </div>
+  </div>
+
+  <% if (Object.keys(errs).length) { %>
+    <div class="alert alert--error">
+      <%- icon('alert', 'md') %>
+      <div>
+        <strong>Le formulaire n’a pas pu être enregistré</strong>
+        <ul style="margin:6px 0 0;padding-left:18px">
+          <% Object.entries(errs).forEach(function (e) { %><li><%= e[1] %></li><% }); %>
+        </ul>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (!isNew) { %>
+    <div class="panel">
+      <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:center">
+        <span class="pill pill--<%= product.status === 'published' ? 'success' : (product.status === 'draft' ? 'warn' : 'neutral') %>">
+          <%= (statuses.find((s) => s.value === product.status) || { label: product.status }).label %>
+        </span>
+        <span class="pill pill--<%= purchasableNow ? 'success' : 'warn' %>">
+          <%= purchasableNow ? 'Achetable sur la boutique' : 'Non achetable en l’état' %>
+        </span>
+        <% if (!purchasableNow && purchasability) { %>
+          <span class="tiny muted"><%= purchasability.reasons.join(' ') %></span>
+        <% } %>
+        <span style="margin-left:auto" class="tiny muted">
+          Vues internes : <%= product.view_count || 0 %> · Vendus : <%= product.sold_qty || 0 %>
+        </span>
+      </div>
+    </div>
+  <% } %>
+
+  <div class="split split--2">
+    <!-- =============== Colonne principale =============== -->
+    <div>
+      <div class="panel">
+        <div class="panel-head"><h2>Identification</h2><span class="hint">Ce que le client voit en premier</span></div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="name">Nom de l’article <span class="required-mark" aria-hidden="true">*</span></label>
+            <input id="name" name="name" type="text" required maxlength="250" value="<%= v.name || '' %>"
+                   placeholder="Ex. : Cahier 200 pages format A4, couverture rigide" aria-describedby="name-help">
+            <span id="name-help" class="field-help">Précisez ce qui distingue l’article : format, capacité, couleur, conditionnement.</span>
+            <%- err('name') %>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label for="sku">Référence (SKU)</label>
+              <input id="sku" name="sku" type="text" maxlength="80" value="<%= v.sku || '' %>"
+                     placeholder="PAP-CAH-200" aria-describedby="sku-help" style="text-transform:uppercase">
+              <span id="sku-help" class="field-help">
+                Identifiant unique, utilisé pour les imports et les mises à jour. Laissez vide pour une génération automatique.
+                <strong>Sans référence, l’article ne peut pas être vendu.</strong>
+              </span>
+              <%- err('sku') %>
+            </div>
+            <div class="field">
+              <label for="slug">Adresse web (facultatif)</label>
+              <input id="slug" name="slug" type="text" maxlength="100" value="<%= v.slug || '' %>" placeholder="cahier-200-pages-a4">
+              <span class="field-help">Généré automatiquement à partir du nom si laissé vide.</span>
+              <%- err('slug') %>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label for="category_id">Catégorie</label>
+              <select id="category_id" name="category_id" data-category-select>
+                <option value="">— à classer —</option>
+                <% flatTree.forEach(function (c) { %>
+                  <option value="<%= c.id %>" <%= String(v.category_id || '') === String(c.id) ? 'selected' : '' %>>
+                    <%= '— '.repeat(c.depth) %><%= c.name %><%= c.archived ? ' (archivée)' : '' %>
+                  </option>
+                <% }); %>
+              </select>
+              <span class="field-help">Détermine aussi les caractéristiques proposées plus bas.</span>
+              <%- err('category_id') %>
+            </div>
+            <div class="field">
+              <label for="brand">Marque</label>
+              <input id="brand" name="brand" type="text" maxlength="120" value="<%= v.brand || '' %>" list="liste-marques" placeholder="Ex. : Bic, HP, Samsung">
+              <datalist id="liste-marques">
+                <% brands.forEach(function (b) { %><option value="<%= b.name %>"></option><% }); %>
+              </datalist>
+              <span class="field-help">Saisie libre : la marque est créée si elle n’existe pas encore.</span>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label for="product_condition">État</label>
+              <select id="product_condition" name="product_condition">
+                <% conditions.forEach(function (c) { %>
+                  <option value="<%= c.value %>" <%= v.product_condition === c.value ? 'selected' : '' %>><%= c.label %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="field">
+              <label for="sale_unit">Unité de vente</label>
+              <select id="sale_unit" name="sale_unit">
+                <% units.forEach(function (u) { %>
+                  <option value="<%= u.value %>" <%= v.sale_unit === u.value ? 'selected' : '' %>><%= u.label %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="field">
+              <label for="sale_unit_label">Libellé personnalisé</label>
+              <input id="sale_unit_label" name="sale_unit_label" type="text" maxlength="40" value="<%= v.sale_unit_label || '' %>" placeholder="Ex. : paquet de 10">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Prix</h2><span class="hint">Tous les montants sont en <%= store.currencyLabel %>, sans décimales</span></div>
+        <div class="panel-body">
+          <div class="form-grid form-grid--3">
+            <div class="field">
+              <label for="price">Prix de vente</label>
+              <input id="price" name="price" type="number" min="0" step="1" inputmode="numeric" value="<%= v.price || '' %>"
+                     placeholder="2500" aria-describedby="price-help">
+              <span id="price-help" class="field-help">
+                Un article sans prix n’est jamais proposé à la vente : il reste en brouillon.
+              </span>
+              <%- err('price') %>
+            </div>
+            <div class="field">
+              <label for="compare_at_price">Prix de référence (barré)</label>
+              <input id="compare_at_price" name="compare_at_price" type="number" min="0" step="1" inputmode="numeric" value="<%= v.compare_at_price || '' %>">
+              <span class="field-help">Facultatif. N’affichez un prix barré que s’il a réellement été pratiqué.</span>
+              <%- err('compare_at_price') %>
+            </div>
+            <div class="field">
+              <label for="promo_price">Prix promotionnel</label>
+              <input id="promo_price" name="promo_price" type="number" min="0" step="1" inputmode="numeric" value="<%= v.promo_price || '' %>">
+              <span class="field-help">Doit être inférieur au prix de vente.</span>
+              <%- err('promo_price') %>
+            </div>
+            <div class="field">
+              <label for="promo_starts_at">Promotion à partir du</label>
+              <input id="promo_starts_at" name="promo_starts_at" type="date" value="<%= v.promo_starts_at || '' %>">
+            </div>
+            <div class="field">
+              <label for="promo_ends_at">Jusqu’au</label>
+              <input id="promo_ends_at" name="promo_ends_at" type="date" value="<%= v.promo_ends_at || '' %>">
+              <%- err('promo_ends_at') %>
+            </div>
+          </div>
+          <p class="tiny muted" style="margin:0">
+            Une promotion n’est affichée que si ses dates sont valides : aucune promotion artificielle ni compte à rebours
+            n’est généré par le site.
+          </p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Descriptions</h2></div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="short_description">Description courte</label>
+            <textarea id="short_description" name="short_description" rows="2" maxlength="500"
+                      placeholder="Une ou deux phrases visibles dans le catalogue et en haut de la fiche."><%= v.short_description || '' %></textarea>
+            <%- err('short_description') %>
+          </div>
+          <div class="field">
+            <label for="description">Description détaillée</label>
+            <textarea id="description" name="description" rows="10" maxlength="20000"
+                      placeholder="Caractéristiques, usages, contenu, précautions…"><%= v.description || '' %></textarea>
+            <span class="field-help">
+              Mise en forme simple acceptée (titres, listes, liens, gras). Le contenu est nettoyé automatiquement
+              pour empêcher tout script.
+            </span>
+            <%- err('description') %>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="warranty">Garantie</label>
+              <input id="warranty" name="warranty" type="text" maxlength="300" value="<%= v.warranty || '' %>" placeholder="Ex. : 12 mois, retour en boutique">
+              <span class="field-help">À ne renseigner que si elle est réellement accordée.</span>
+            </div>
+            <div class="field">
+              <label for="box_contents">Contenu de la boîte</label>
+              <textarea id="box_contents" name="box_contents" rows="3" maxlength="4000" placeholder="Ex. : 1 téléphone, 1 chargeur, 1 câble USB, notice"><%= v.box_contents || '' %></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Caractéristiques</h2>
+          <span class="hint">Adaptées à la catégorie choisie</span>
+        </div>
+        <div class="panel-body">
+          <!-- Suggestions rechargées quand la catégorie change (JavaScript) -->
+          <div class="callout" style="margin-bottom:var(--space-3)" data-category-templates
+               <%= (categoryAttributes && categoryAttributes.length) ? '' : 'hidden' %>></div>
+
+          <% if (categoryAttributes && categoryAttributes.length) { %>
+            <div class="callout" style="margin-bottom:var(--space-3)">
+              <strong>Modèle de la catégorie</strong>
+              <p style="margin:6px 0">Cliquez pour ajouter une caractéristique pré-définie :</p>
+              <div class="btn-row">
+                <% categoryAttributes.forEach(function (t) { %>
+                  <button class="btn btn--sm btn--quiet" type="button"
+                          data-attribute-template='<%- JSON.stringify({ key: t.key, label: t.label, unit: t.unit || '', type: t.type || 'text' }) %>'>
+                    <%- icon('plus', 'xs') %> <%= t.label %>
+                  </button>
+                <% }); %>
+              </div>
+            </div>
+          <% } %>
+
+          <div data-repeater>
+            <div class="repeater" data-repeater-list>
+              <% attributeRows.forEach(function (a, i) { %>
+                <div class="repeater-row" data-repeater-row style="grid-template-columns:2fr 2fr 1fr auto">
+                  <div>
+                    <label for="attr-label-<%= i %>">Intitulé</label>
+                    <input id="attr-label-<%= i %>" type="text" name="attributes[label][<%= i %>]" value="<%= a.label || '' %>" placeholder="Ex. : Format">
+                  </div>
+                  <div>
+                    <label for="attr-value-<%= i %>">Valeur</label>
+                    <input id="attr-value-<%= i %>" type="text" name="attributes[value][<%= i %>]" value="<%= a.value || '' %>" placeholder="Ex. : A4">
+                  </div>
+                  <div>
+                    <label for="attr-unit-<%= i %>">Unité</label>
+                    <input id="attr-unit-<%= i %>" type="text" name="attributes[unit][<%= i %>]" value="<%= a.unit || '' %>" placeholder="cm, Go…">
+                  </div>
+                  <input type="hidden" name="attributes[key][<%= i %>]" value="<%= a.key || '' %>">
+                  <div>
+                    <button class="rm" type="button" data-repeater-remove aria-label="Retirer cette caractéristique"><%- icon('trash', 'sm') %></button>
+                  </div>
+                </div>
+              <% }); %>
+            </div>
+            <template>
+              <div class="repeater-row" data-repeater-row style="grid-template-columns:2fr 2fr 1fr auto">
+                <div>
+                  <label>Intitulé</label>
+                  <input type="text" name="attributes[label][0]" placeholder="Ex. : Capacité">
+                </div>
+                <div>
+                  <label>Valeur</label>
+                  <input type="text" name="attributes[value][0]" placeholder="Ex. : 128 Go">
+                </div>
+                <div>
+                  <label>Unité</label>
+                  <input type="text" name="attributes[unit][0]">
+                </div>
+                <input type="hidden" name="attributes[key][0]" value="">
+                <div>
+                  <button class="rm" type="button" data-repeater-remove aria-label="Retirer"><%- icon('trash', 'sm') %></button>
+                </div>
+              </div>
+            </template>
+            <div class="repeater-foot">
+              <button class="btn btn--sm btn--quiet" type="button" data-repeater-add><%- icon('plus', 'sm') %> Ajouter une caractéristique</button>
+              <span class="tiny muted" style="margin-left:8px">Lignes vides ignorées à l’enregistrement.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Variantes</h2>
+          <span class="hint">Couleur, capacité, modèle, taille…</span>
+        </div>
+        <div class="panel-body">
+          <p class="tiny muted" style="margin-top:0">
+            Chaque variante peut avoir sa propre référence, son propre prix et son propre stock.
+            Le stock d’un produit à variantes est suivi variante par variante.
+          </p>
+          <div data-repeater>
+            <div class="repeater" data-repeater-list>
+              <% variantRows.forEach(function (vr) { %>
+                <div class="repeater-row" data-repeater-row style="grid-template-columns:repeat(4,minmax(0,1fr)) repeat(2,minmax(0,.8fr)) auto">
+                  <div>
+                    <label>Nom de l’option 1</label>
+                    <input type="text" name="variants[options_name_1][<%= vr.index %>]" value="<%= vr.optionsList[0] ? vr.optionsList[0][0] : '' %>" placeholder="Couleur">
+                  </div>
+                  <div>
+                    <label>Valeur 1</label>
+                    <input type="text" name="variants[options_value_1][<%= vr.index %>]" value="<%= vr.optionsList[0] ? vr.optionsList[0][1] : '' %>" placeholder="Bleu">
+                  </div>
+                  <div>
+                    <label>Option 2</label>
+                    <input type="text" name="variants[options_name_2][<%= vr.index %>]" value="<%= vr.optionsList[1] ? vr.optionsList[1][0] : '' %>" placeholder="Capacité">
+                  </div>
+                  <div>
+                    <label>Valeur 2</label>
+                    <input type="text" name="variants[options_value_2][<%= vr.index %>]" value="<%= vr.optionsList[1] ? vr.optionsList[1][1] : '' %>" placeholder="128 Go">
+                  </div>
+                  <div>
+                    <label>Référence</label>
+                    <input type="text" name="variants[sku][<%= vr.index %>]" value="<%= vr.sku || '' %>" placeholder="SKU variante">
+                  </div>
+                  <div>
+                    <label>Prix</label>
+                    <input type="number" min="0" step="1" inputmode="numeric" name="variants[price][<%= vr.index %>]" value="<%= vr.price != null ? money.plain(vr.price) : '' %>" placeholder="vide = prix article">
+                  </div>
+                  <div>
+                    <label>Stock</label>
+                    <input type="number" min="0" step="1" inputmode="numeric" name="variants[stock][<%= vr.index %>]" value="<%= vr.stockValue %>">
+                  </div>
+                  <div>
+                    <label>Poids (g)</label>
+                    <input type="number" min="0" step="1" inputmode="numeric" name="variants[weight_g][<%= vr.index %>]" value="<%= vr.weight_g != null ? vr.weight_g : '' %>">
+                  </div>
+                  <div>
+                    <label>Code-barres</label>
+                    <input type="text" name="variants[barcode][<%= vr.index %>]" value="<%= vr.barcode || '' %>">
+                  </div>
+                  <div>
+                    <label>Promo</label>
+                    <input type="number" min="0" step="1" inputmode="numeric" name="variants[promo_price][<%= vr.index %>]" value="<%= vr.promo_price != null ? money.plain(vr.promo_price) : '' %>">
+                  </div>
+                  <div>
+                    <label>Prix barré</label>
+                    <input type="number" min="0" step="1" inputmode="numeric" name="variants[compare_at_price][<%= vr.index %>]" value="<%= vr.compare_at_price != null ? money.plain(vr.compare_at_price) : '' %>">
+                  </div>
+                  <div>
+                    <label class="visually-hidden">Retirer</label>
+                    <button class="rm" type="button" data-repeater-remove aria-label="Retirer la variante"><%- icon('trash', 'sm') %></button>
+                  </div>
+                  <input type="hidden" name="variants[id][<%= vr.index %>]" value="<%= vr.id || '' %>">
+                </div>
+              <% }); %>
+            </div>
+            <template>
+              <div class="repeater-row" data-repeater-row style="grid-template-columns:repeat(4,minmax(0,1fr)) repeat(2,minmax(0,.8fr)) auto">
+                <div><label>Option 1</label><input type="text" name="variants[options_name_1][0]" placeholder="Couleur"></div>
+                <div><label>Valeur 1</label><input type="text" name="variants[options_value_1][0]" placeholder="Bleu"></div>
+                <div><label>Option 2</label><input type="text" name="variants[options_name_2][0]" placeholder="Capacité"></div>
+                <div><label>Valeur 2</label><input type="text" name="variants[options_value_2][0]" placeholder="128 Go"></div>
+                <div><label>Référence</label><input type="text" name="variants[sku][0]"></div>
+                <div><label>Prix</label><input type="number" min="0" step="1" inputmode="numeric" name="variants[price][0]"></div>
+                <div><label>Stock</label><input type="number" min="0" step="1" inputmode="numeric" name="variants[stock][0]"></div>
+                <div><label>Poids (g)</label><input type="number" min="0" step="1" inputmode="numeric" name="variants[weight_g][0]"></div>
+                <div><label>Code-barres</label><input type="text" name="variants[barcode][0]"></div>
+                <div><label>Promo</label><input type="number" min="0" step="1" inputmode="numeric" name="variants[promo_price][0]"></div>
+                <div><label>Prix barré</label><input type="number" min="0" step="1" inputmode="numeric" name="variants[compare_at_price][0]"></div>
+                <div><label class="visually-hidden">Retirer</label><button class="rm" type="button" data-repeater-remove><%- icon('trash', 'sm') %></button></div>
+                <input type="hidden" name="variants[id][0]" value="">
+              </div>
+            </template>
+            <div class="repeater-foot">
+              <button class="btn btn--sm btn--quiet" type="button" data-repeater-add><%- icon('plus', 'sm') %> Ajouter une variante</button>
+              <span class="tiny muted" style="margin-left:8px">
+                Une variante sans option, sans référence et sans stock est ignorée.
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Kit / lot</h2>
+          <span class="hint">Composition explicite et stock par composant</span>
+        </div>
+        <div class="panel-body">
+          <label class="checkbox" style="max-width:420px">
+            <input type="checkbox" name="is_kit" value="1" <%= v.is_kit ? 'checked' : '' %> data-kit-toggle>
+            <span><strong>Cet article est un kit ou un lot</strong>
+              <span class="tiny muted" style="display:block">
+                La disponibilité du kit est calculée à partir du stock de ses composants ; le kit lui-même
+                n’a pas de stock propre.
+              </span>
+            </span>
+          </label>
+
+          <div data-kit-block <%= v.is_kit ? '' : 'hidden' %> style="margin-top:var(--space-3)">
+            <% if (!isNew && kitRows.length) { %>
+              <div class="table-wrap" style="margin-bottom:var(--space-3)">
+                <table class="data compact">
+                  <caption class="visually-hidden">Composants actuels du kit</caption>
+                  <thead><tr><th scope="col">Composant</th><th scope="col">Référence</th><th scope="col" class="num">Quantité</th><th scope="col" class="num">Stock composant</th></tr></thead>
+                  <tbody>
+                    <% kitRows.forEach(function (k, i) { %>
+                      <tr>
+                        <td>
+                          <%= k.name %>
+                          <input type="hidden" name="kit[component_product_id][<%= i %>]" value="<%= k.component_product_id %>">
+                          <input type="hidden" name="kit[component_variant_id][<%= i %>]" value="<%= k.component_variant_id || '' %>">
+                        </td>
+                        <td class="mono tiny"><%= k.sku || '—' %></td>
+                        <td class="num"><input type="number" name="kit[quantity][<%= i %>]" value="<%= k.quantity %>" min="1" step="1" style="width:80px;text-align:right"></td>
+                        <td class="num">
+                          <% if (k.track_stock) { %>
+                            <span class="pill pill--<%= (k.qty_on_hand || 0) <= 0 ? 'danger' : 'success' %>"><%= k.qty_on_hand || 0 %></span>
+                          <% } else { %><span class="pill pill--info">non suivi</span><% } %>
+                        </td>
+                      </tr>
+                    <% }); %>
+                  </tbody>
+                </table>
+              </div>
+              <p class="tiny muted">Enregistrez pour remplacer la composition par les lignes ci-dessus.</p>
+            <% } else { %>
+              <div data-kit-picker>
+                <div class="field pos-search">
+                  <label for="kit-search">Ajouter un composant</label>
+                  <input id="kit-search" type="search" data-kit-search placeholder="Chercher un article du catalogue (nom ou référence)" autocomplete="off">
+                  <div class="pos-results" data-kit-results hidden></div>
+                </div>
+                <div class="repeater" data-kit-lines></div>
+                <p class="tiny muted">
+                  Les composants ajoutés apparaissent ici ; la quantité est modifiable avant enregistrement.
+                  Un kit doit comporter au moins un composant.
+                </p>
+              </div>
+              <template data-kit-line-template>
+                <div class="repeater-row" data-kit-line style="grid-template-columns:1fr 120px auto">
+                  <div>
+                    <span data-kit-name></span>
+                    <input type="hidden" name="kit[component_product_id][0]" data-kit-field="product">
+                    <input type="hidden" name="kit[component_variant_id][0]" data-kit-field="variant">
+                  </div>
+                  <div>
+                    <label>Quantité</label>
+                    <input type="number" name="kit[quantity][0]" value="1" min="1" step="1" data-kit-field="qty">
+                  </div>
+                  <div>
+                    <label class="visually-hidden">Retirer</label>
+                    <button class="rm" type="button" data-kit-remove><%- icon('trash', 'sm') %></button>
+                  </div>
+                </div>
+              </template>
+            <% } %>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Logistique</h2><span class="hint">Poids et dimensions servent au calcul des frais de livraison</span></div>
+        <div class="panel-body">
+          <div class="form-grid form-grid--3">
+            <div class="field">
+              <label for="weight_g">Poids (grammes)</label>
+              <input id="weight_g" name="weight_g" type="number" min="0" max="1000000" step="1" inputmode="numeric" value="<%= v.weight_g || '' %>">
+            </div>
+            <div class="field">
+              <label for="length_cm">Longueur (cm)</label>
+              <input id="length_cm" name="length_cm" type="number" min="0" max="1000" step="0.1" inputmode="decimal" value="<%= v.length_cm || '' %>">
+            </div>
+            <div class="field">
+              <label for="width_cm">Largeur (cm)</label>
+              <input id="width_cm" name="width_cm" type="number" min="0" max="1000" step="0.1" inputmode="decimal" value="<%= v.width_cm || '' %>">
+            </div>
+            <div class="field">
+              <label for="height_cm">Hauteur (cm)</label>
+              <input id="height_cm" name="height_cm" type="number" min="0" max="1000" step="0.1" inputmode="decimal" value="<%= v.height_cm || '' %>">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Référencement</h2><span class="hint">Facultatif : repris automatiquement sinon</span></div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="meta_title">Titre affiché dans les moteurs de recherche</label>
+            <input id="meta_title" name="meta_title" type="text" maxlength="160" value="<%= v.meta_title || '' %>">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label for="meta_description">Description pour les moteurs de recherche</label>
+            <textarea id="meta_description" name="meta_description" rows="3" maxlength="400"><%= v.meta_description || '' %></textarea>
+            <span class="field-help">N’indiquez que des informations exactes : adresse, horaires et prix non confirmés ne doivent pas y figurer.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =============== Colonne latérale =============== -->
+    <div>
+      <div class="panel">
+        <div class="panel-head"><h2>Publication</h2></div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="status">Statut</label>
+            <select id="status" name="status">
+              <% statuses.forEach(function (st) { %>
+                <option value="<%= st.value %>" <%= v.status === st.value ? 'selected' : '' %>><%= st.label %></option>
+              <% }); %>
+            </select>
+            <span class="field-help">
+              <strong>Brouillon</strong> : invisible. <strong>Publié</strong> : visible et vendable si le prix et la
+              disponibilité sont confirmés. <strong>Archivé</strong> : retiré de la vente, historique conservé.
+            </span>
+          </div>
+
+          <label class="checkbox">
+            <input type="checkbox" name="data_confirmed" value="1" <%= v.data_confirmed ? 'checked' : '' %>>
+            <span><strong>Prix et disponibilité confirmés</strong>
+              <span class="tiny muted" style="display:block">
+                Sans cette confirmation, l’article n’est pas vendable : c’est la protection contre la mise en vente
+                d’un article vu en photo mais non vérifié.
+              </span>
+            </span>
+          </label>
+
+          <label class="checkbox">
+            <input type="checkbox" name="featured" value="1" <%= v.featured ? 'checked' : '' %>>
+            <span>Mettre en avant sur l’accueil</span>
+          </label>
+
+          <% if (!isNew) { %>
+            <div class="sticky-actions" style="position:static;margin:var(--space-3) 0 0;border-radius:var(--radius)">
+              <button class="btn btn--block" type="submit"><%- icon('check', 'sm') %> Enregistrer</button>
+            </div>
+            <div class="btn-row" style="margin-top:var(--space-2)">
+              <button class="btn btn--sm btn--quiet" type="submit" name="status" value="published" formnovalidate>Enregistrer et publier</button>
+              <button class="btn btn--sm btn--quiet" type="submit" name="status" value="draft" formnovalidate>Enregistrer en brouillon</button>
+            </div>
+          <% } else { %>
+            <div class="sticky-actions" style="position:static;margin:var(--space-3) 0 0;border-radius:var(--radius)">
+              <button class="btn btn--block" type="submit"><%- icon('check', 'sm') %> Créer l’article</button>
+            </div>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Stock</h2></div>
+        <div class="panel-body">
+          <label class="checkbox">
+            <input type="checkbox" name="track_stock" value="1" <%= v.track_stock ? 'checked' : '' %> data-track-stock>
+            <span><strong>Suivre le stock de cet article</strong>
+              <span class="tiny muted" style="display:block">
+                Décochez pour un article toujours disponible sur commande (pas de décompte).
+              </span>
+            </span>
+          </label>
+
+          <div data-stock-fields <%= v.track_stock ? '' : 'hidden' %>>
+            <div class="field">
+              <label for="qty">Quantité en stock</label>
+              <input id="qty" name="qty" type="number" min="0" max="10000000" step="1" inputmode="numeric" value="<%= v.qty != null ? v.qty : 0 %>">
+              <% if (!isNew && stockItem) { %>
+                <span class="field-help">
+                  Actuellement : <%= stockItem.qty_on_hand %> en stock, <%= stockItem.qty_reserved %> réservé(s),
+                  <strong><%= available %> disponible(s)</strong>.
+                  Enregistrer crée un mouvement d’inventaire horodaté.
+                </span>
+              <% } %>
+              <%- err('qty') %>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label for="low_stock_threshold">Seuil d’alerte</label>
+              <input id="low_stock_threshold" name="low_stock_threshold" type="number" min="0" max="1000000" step="1" inputmode="numeric" value="<%= v.low_stock_threshold != null ? v.low_stock_threshold : 0 %>">
+              <span class="field-help">Une alerte apparaît dans le tableau de bord à ce niveau (0 = pas d’alerte).</span>
+            </div>
+          </div>
+
+          <% if (!isNew && stockItems && stockItems.length > 1) { %>
+            <details style="margin-top:var(--space-3)">
+              <summary class="tiny muted" style="cursor:pointer">Stock par variante (<%= stockItems.length %>)</summary>
+              <ul class="tiny muted" style="padding-left:18px;margin:6px 0 0">
+                <% stockItems.forEach(function (si) { %>
+                  <li><%= si.variant_id ? `Variante n° ${si.variant_id}` : 'Article' %> : <%= si.qty_on_hand %> en stock, <%= si.qty_reserved %> réservé(s)</li>
+                <% }); %>
+              </ul>
+            </details>
+          <% } %>
+
+          <% if (!isNew) { %>
+            <p style="margin:var(--space-3) 0 0">
+              <a class="btn btn--sm btn--ghost btn--block" href="/admin/stock?q=<%= encodeURIComponent(product.sku || product.name) %>">
+                <%- icon('layers', 'sm') %> Historique des mouvements
+              </a>
+            </p>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="panel" id="images">
+        <div class="panel-head"><h2>Photos</h2><span class="hint">Jusqu’à 12 par article</span></div>
+        <div class="panel-body">
+          <% if (!isNew && images.length) { %>
+            <div class="media-grid" style="margin-bottom:var(--space-3)">
+              <% images.forEach(function (img) { %>
+                <div class="media-tile">
+                  <div class="m-img"><img src="<%= mediaUrl(img.file_key, 'medium') %>" alt="<%= img.alt || v.name %>" loading="lazy"></div>
+                  <div class="m-meta">
+                    <% if (img.is_primary) { %><span class="pill pill--brand">Principale</span><% } %>
+                    <span class="tiny"><%= img.width %>×<%= img.height %></span>
+                  </div>
+                  <div class="btn-row" style="padding:6px;gap:4px">
+                    <% if (!img.is_primary) { %>
+                      <button class="btn btn--sm btn--quiet" type="submit" formaction="/admin/produits/<%= product.id %>/images/<%= img.id %>/primaire" formnovalidate title="Définir comme principale">
+                        <%- icon('star', 'xs') %>
+                      </button>
+                    <% } %>
+                    <button class="btn btn--sm btn--quiet" type="submit" formaction="/admin/produits/<%= product.id %>/images/<%= img.id %>/supprimer"
+                            formnovalidate data-confirm-action="Retirer cette photo de l’article ?" title="Retirer">
+                      <%- icon('trash', 'xs') %>
+                    </button>
+                  </div>
+                </div>
+              <% }); %>
+            </div>
+            <p class="tiny muted">
+              L’ordre d’affichage suit la photo principale puis l’ordre d’ajout. Les images sont redimensionnées
+              et converties automatiquement pour la rapidité d’affichage sur mobile.
+            </p>
+          <% } %>
+
+          <div class="field" style="margin-top:var(--space-3)">
+            <label for="images">Ajouter des photos</label>
+            <div class="drop-zone">
+              <input id="images" name="images" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple
+                     data-drop-input aria-describedby="images-help">
+              <p style="margin:0 0 6px"><%- icon('camera', 'lg') %></p>
+              <label for="images" class="btn btn--sm btn--ghost" style="cursor:pointer">Choisir des fichiers</label>
+              <p class="tiny muted" id="images-help" style="margin:8px 0 0">
+                <%= (config.allowedImageTypes || []).map(function (t) { return t.replace('image/', '').toUpperCase(); }).join(', ') %> ·
+                <%= config.uploadLimitMb %> Mo maximum par image · 12 images maximum.
+                Vous pourrez les ajouter après la création de l’article.
+              </p>
+            </div>
+            <%- err('images') %>
+          </div>
+        </div>
+      </div>
+
+      <% if (!isNew && can('catalog.delete')) { %>
+        <div class="panel" style="border-color:#f0c4c0">
+          <div class="panel-head"><h2 style="color:var(--danger)">Zone sensible</h2></div>
+          <div class="panel-body">
+            <p class="tiny muted" style="margin-top:0">
+              La suppression définitive n’est possible que si l’article n’apparaît dans aucune commande ;
+              sinon il est archivé et l’historique est préservé.
+            </p>
+            <button class="btn btn--danger btn--sm btn--block" type="submit" formaction="/admin/produits/<%= product.id %>/supprimer" formnovalidate
+                    data-confirm-action="Supprimer « <%= v.name %> » ? Action irréversible si aucune commande ne le référence.">
+              <%- icon('trash', 'sm') %> Supprimer l’article
+            </button>
+          </div>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</form>
+
+
+<%- include('/admin/partials/footer') %>

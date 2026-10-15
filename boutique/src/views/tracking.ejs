@@ -1,0 +1,137 @@
+<%
+/**
+ * Suivi de commande (accès par lien privé).
+ * N'expose que les événements publics ; adresse et téléphone sont masqués.
+ */
+const o = order;
+const paid = ['paid', 'partially_refunded', 'refunded'].includes(o.payment_status);
+const awaitingCash = o.payment_status === 'awaiting_confirmation';
+const quotePending = Boolean(o.quote_required) && o.quote_status !== 'accepted' && o.quote_status !== 'refused';
+const cancelled = o.status === 'cancelled';
+const paymentTone = paid ? 'success' : (awaitingCash ? 'warn' : (o.payment_status === 'failed' ? 'danger' : 'info'));
+%>
+<div class="container" style="padding:var(--space-5) var(--space-4) var(--space-7);max-width:860px">
+  <%- include('/partials/breadcrumb', { crumbs: [{ label: 'Suivi', href: '/suivi' }, { label: o.reference }] }) %>
+
+  <div class="catalog-head">
+    <div>
+      <h1 style="margin-bottom:2px">Commande <%= o.reference %></h1>
+      <p class="muted" style="margin:0">Passée le <%= dates.formatDateTime(o.placed_at) %></p>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn--ghost btn--sm" type="button" data-print><%- icon('print', 'sm') %> Imprimer</button>
+      <button class="btn btn--quiet btn--sm" type="button" data-copy="<%= o.reference %>"><%- icon('copy', 'sm') %> Copier la référence</button>
+    </div>
+  </div>
+
+  <% if (cancelled) { %>
+    <div class="alert alert--warn"><%- icon('alert', 'md') %><span><strong>Commande annulée.</strong> <%= o.cancel_reason || 'Aucune somme n’est due.' %></span></div>
+  <% } else if (quotePending) { %>
+    <div class="alert alert--info">
+      <%- icon('info', 'md') %>
+      <div>
+        <strong>Livraison sur devis</strong>
+        <% if (o.quote_status === 'sent' && o.quote_amount != null) { %>
+          <p style="margin:4px 0 0">La boutique propose <%= money.format(o.quote_amount) %> de frais de livraison. Vous pouvez l’accepter depuis votre récapitulatif de commande.</p>
+        <% } else { %>
+          <p style="margin:4px 0 0">La boutique calcule le coût de livraison pour votre destination. Aucun paiement ne sera demandé avant votre accord.</p>
+        <% } %>
+      </div>
+    </div>
+  <% } %>
+
+  <div class="tracking-card">
+    <h2 style="font-size:1.05rem">État actuel</h2>
+    <div class="field-row" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div><span class="tiny muted">Commande</span><div><span class="pill pill--brand"><%= o.statusLabel %></span></div></div>
+      <div><span class="tiny muted">Paiement</span><div><span class="pill pill--<%= paymentTone %>"><%= o.paymentStatusLabel %></span></div></div>
+      <div><span class="tiny muted">Livraison / retrait</span><div><span class="pill pill--info"><%= o.deliveryStatusLabel %></span></div></div>
+    </div>
+    <p class="tiny muted" style="margin-top:var(--space-3)">
+      Ces trois informations sont distinctes : une commande peut être enregistrée sans être encore payée,
+      et payée sans être encore livrée.
+    </p>
+  </div>
+
+  <div class="tracking-card">
+    <h2 style="font-size:1.05rem">Chronologie</h2>
+    <ol class="timeline">
+      <% steps.forEach(function (st) { %>
+        <li data-state="<%= st.state %>">
+          <span class="t-title"><%= st.label %></span>
+          <% if (st.detail) { %><span class="t-detail" style="display:block"><%= st.detail %></span><% } %>
+          <% if (st.at) { %><span class="t-date"><%= dates.formatDateTime(st.at) %></span><% } %>
+        </li>
+      <% }); %>
+    </ol>
+  </div>
+
+  <div class="split split--even" style="margin-top:var(--space-4)">
+    <div class="tracking-card">
+      <h2 style="font-size:1.05rem">Réception</h2>
+      <dl class="kv">
+        <dt>Mode</dt><dd><%= o.fulfillment_mode === 'pickup' ? 'Retrait en boutique' : 'Livraison' %></dd>
+        <% if (o.fulfillment_mode === 'pickup') { %>
+          <dt>Lieu</dt><dd><%= store.name %>, <%= store.city %><% if (store.addressConfirmed && store.address) { %> — <%= store.address %><% } %></dd>
+          <% if (o.pickup_at) { %><dt>À partir du</dt><dd><%= dates.formatDateTime(o.pickup_at) %></dd><% } %>
+        <% } else { %>
+          <% if (o.zone) { %><dt>Zone</dt><dd><%= o.zone.name %><% if (o.zone.eta_text) { %> · <%= o.zone.eta_text %><% } %></dd><% } %>
+          <dt>Ville</dt><dd><%= o.city || '—' %><% if (o.quarter) { %> · <%= o.quarter %><% } %></dd>
+          <% if (o.address) { %><dt>Adresse</dt><dd><%= o.address %></dd><% } %>
+          <% if (o.landmark) { %><dt>Repère</dt><dd><%= o.landmark %></dd><% } %>
+        <% } %>
+        <dt>Destinataire</dt><dd><%= o.recipient_name %> · <%= o.recipient_phone %></dd>
+        <% if (carrier) { %><dt>Transporteur</dt><dd><%= carrier.name %><% if (o.tracking_reference) { %> · réf. <span class="mono"><%= o.tracking_reference %></span><% } %></dd><% } %>
+        <% if (o.trackingUrl) { %><dt>Suivi transporteur</dt><dd><a href="<%= o.trackingUrl %>" target="_blank" rel="noopener noreferrer">Consulter <%- icon('external-link', 'xs') %></a></dd><% } %>
+      </dl>
+    </div>
+
+    <div class="tracking-card">
+      <h2 style="font-size:1.05rem">Montants</h2>
+      <div class="summary-row"><span>Sous-total</span><strong><%= money.format(o.subtotal) %></strong></div>
+      <% if (o.discount > 0) { %><div class="summary-row"><span>Remise</span><strong>− <%= money.format(o.discount) %></strong></div><% } %>
+      <div class="summary-row">
+        <span><%= o.fulfillment_mode === 'pickup' ? 'Retrait' : 'Livraison' %></span>
+        <strong><% if (quotePending) { %>Sur devis<% } else if (o.shipping_cost > 0) { %><%= money.format(o.shipping_cost) %><% } else { %>Sans frais<% } %></strong>
+      </div>
+      <div class="summary-row summary-row--total"><span>Total</span><span><%= money.format(o.total) %></span></div>
+      <% if (o.amount_paid > 0) { %><div class="summary-row"><span>Réglé</span><strong><%= money.format(o.amount_paid) %></strong></div><% } %>
+      <% if (o.amount_refunded > 0) { %><div class="summary-row"><span>Remboursé</span><strong>− <%= money.format(o.amount_refunded) %></strong></div><% } %>
+      <div class="summary-row"><span>Moyen</span><span><%= o.paymentMethod ? o.paymentMethod.name : (o.payment_method_code || '—') %></span></div>
+    </div>
+  </div>
+
+  <div class="tracking-card" style="margin-top:var(--space-4)">
+    <h2 style="font-size:1.05rem">Articles</h2>
+    <div class="table-wrap" style="border:0">
+      <table class="data">
+        <caption class="visually-hidden">Articles de la commande <%= o.reference %></caption>
+        <thead><tr><th scope="col">Article</th><th scope="col" class="num">Qté</th><th scope="col" class="num">Total</th></tr></thead>
+        <tbody>
+          <% o.items.forEach(function (it) { %>
+            <tr>
+              <td><%= it.name %><% if (it.options_label) { %> <span class="tiny muted">(<%= it.options_label %>)</span><% } %></td>
+              <td class="num"><%= it.qty %></td>
+              <td class="num"><%= money.format(it.line_total) %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tracking-card no-print" style="margin-top:var(--space-4)">
+    <h2 style="font-size:1.05rem">Une question sur cette commande ?</h2>
+    <div class="btn-row">
+      <% if (whatsappUrl) { %>
+        <a class="btn btn--whatsapp" href="<%= whatsappUrl %>" target="_blank" rel="noopener noreferrer"><%- icon('whatsapp', 'sm') %> Écrire sur WhatsApp</a>
+      <% } %>
+      <% if (store.phoneDisplay) { %><a class="btn btn--ghost" href="tel:<%= store.phoneRaw %>"><%- icon('phone', 'sm') %> <%= store.phoneDisplay %></a><% } %>
+      <a class="btn btn--quiet" href="/contact"><%- icon('mail', 'sm') %> Formulaire de contact</a>
+    </div>
+    <p class="tiny muted" style="margin-top:var(--space-3)">
+      Précisez la référence <span class="mono"><%= o.reference %></span>.
+      <%= store.whatsappDisclaimer || 'Ouvrir WhatsApp ne confirme ni une commande ni un paiement.' %>
+    </p>
+  </div>
+</div>

@@ -1,0 +1,34 @@
+{
+  "name": "privilege-daoukro-boutique",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Boutique en ligne ETS LE PRIVILÈGE DAOUKRO — catalogue, commandes, retrait/livraison, Mobile Money, administration",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
+    "migrate": "node --disable-warning=ExperimentalWarning scripts/migrate.js",
+    "seed": "node --disable-warning=ExperimentalWarning scripts/seed.js",
+    "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js --orders",
+    "reset:demo": "node --disable-warning=ExperimentalWarning scripts/reset-demo.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"tests/*.test.js\"",
+    "backup": "node --disable-warning=ExperimentalWarning scripts/backup.js",
+    "backup:full": "node --disable-warning=ExperimentalWarning scripts/backup.js --full",
+    "restore": "node --disable-warning=ExperimentalWarning scripts/restore.js",
+    "check": "node --disable-warning=ExperimentalWarning scripts/check.js",
+    "journey": "node --disable-warning=ExperimentalWarning scripts/journey.js"
+  },
+  "dependencies": {
+    "cookie": "^1.0.2",
+    "ejs": "^3.1.10",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "sharp": "^0.34.4"
+  }
+}
