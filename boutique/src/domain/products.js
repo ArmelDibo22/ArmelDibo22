@@ -610,21 +610,27 @@ function normalizeInput(input, { partial = false } = {}) {
   set('meta_description', input.meta_description !== undefined ? normalizeText(input.meta_description).slice(0, 400) : undefined);
 
   for (const key of ['price', 'compare_at_price', 'promo_price', 'low_stock_threshold', 'qty', 'weight_g', 'position']) {
-    if (input[key] !== undefined && input[key] !== '') {
-      const n = Math.round(Number(String(input[key]).replace(/\s/g, '')));
-      if (!Number.isFinite(n)) throw new CatalogError(`Valeur numérique attendue pour « ${key} ».`);
-      if (n < 0) throw new CatalogError(`« ${key} » ne peut pas être négatif.`);
-      set(key, n);
-    } else if (input[key] === '' || input[key] === null) {
+    if (input[key] === undefined) continue;
+    // `''` (formulaire) et `null` (ligne de base, duplication) signifient « vide ».
+    // Ce test doit précéder la conversion numérique : Number(String(null)) vaut NaN.
+    if (input[key] === '' || input[key] === null) {
       set(key, null);
+      continue;
     }
+    const n = Math.round(Number(String(input[key]).replace(/\s/g, '')));
+    if (!Number.isFinite(n)) throw new CatalogError(`Valeur numérique attendue pour « ${key} ».`);
+    if (n < 0) throw new CatalogError(`« ${key} » ne peut pas être négatif.`);
+    set(key, n);
   }
   for (const key of ['length_cm', 'width_cm', 'height_cm']) {
-    if (input[key] !== undefined && input[key] !== '') {
-      const n = Number(String(input[key]).replace(',', '.'));
-      if (!Number.isFinite(n) || n < 0) throw new CatalogError(`Dimension invalide pour « ${key} ».`);
-      set(key, n);
-    } else if (input[key] === '' || input[key] === null) set(key, null);
+    if (input[key] === undefined) continue;
+    if (input[key] === '' || input[key] === null) {
+      set(key, null);
+      continue;
+    }
+    const n = Number(String(input[key]).replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) throw new CatalogError(`Dimension invalide pour « ${key} ».`);
+    set(key, n);
   }
 
   if (input.sale_unit !== undefined) {

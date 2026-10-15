@@ -14,10 +14,12 @@
     "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
     "migrate": "node --disable-warning=ExperimentalWarning scripts/migrate.js",
     "seed": "node --disable-warning=ExperimentalWarning scripts/seed.js",
-    "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
+    "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js --orders",
     "reset:demo": "node --disable-warning=ExperimentalWarning scripts/reset-demo.js",
     "test": "node --disable-warning=ExperimentalWarning --test tests/",
-    "backup": "node --disable-warning=ExperimentalWarning scripts/backup.js",
+    "backup": "node --disable-warning=ExperimentalWarning scripts/backup.js"
+    ,"backup:full": "node --disable-warning=ExperimentalWarning scripts/backup.js --full"
+    ,"restore": "node --disable-warning=ExperimentalWarning scripts/restore.js",
     "check": "node --disable-warning=ExperimentalWarning scripts/check.js"
   },
   "dependencies": {

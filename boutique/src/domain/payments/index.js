@@ -168,9 +168,11 @@ function initiateForOrder(orderId, { source = 'web' } = {}) {
   if (!method.enabled) throw new PaymentError(`${method.name} n'est plus disponible.`, 'METHOD_DISABLED', 409);
 
   if (method.isCash) {
+    // Référence propre à la commande : la contrainte UNIQUE(provider, provider_reference)
+    // interdirait sinon toute deuxième commande en espèces de l'installation.
     const payment = ensurePaymentRow(order, method, {
       provider: 'manual',
-      providerReference: '',
+      providerReference: `MANUAL-${order.reference}`,
       status: 'created',
     });
     db.transaction(() => {

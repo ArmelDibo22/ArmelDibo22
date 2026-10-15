@@ -62,6 +62,17 @@ function abs(p) {
   return path.isAbsolute(p) ? p : path.join(ROOT, p);
 }
 
+/**
+ * Chemin de stockage selon le mode.
+ *
+ * En mode démonstration, les variables réelles (DATABASE_PATH, MEDIA_DIR…) sont
+ * délibérément IGNORÉES : un `.env` qui définit DATABASE_PATH pointerait sinon la
+ * démo sur la base de production. Seules les variables DEMO_* font foi.
+ */
+function storagePath(realKey, demoKey, realDefault, demoDefault) {
+  return abs(DEMO ? str(demoKey, demoDefault) : str(realKey, realDefault));
+}
+
 function randomSecret(bytes = 48) {
   return crypto.randomBytes(bytes).toString('hex');
 }
@@ -76,6 +87,21 @@ const isProduction = NODE_ENV === 'production';
 
 if (isProduction && DEMO) {
   throw new Error('Le mode DEMO est interdit lorsque NODE_ENV=production.');
+}
+
+if (DEMO) {
+  const realDb = path.isAbsolute(str('DATABASE_PATH', 'data/boutique.sqlite'))
+    ? str('DATABASE_PATH', 'data/boutique.sqlite')
+    : path.join(ROOT, str('DATABASE_PATH', 'data/boutique.sqlite'));
+  const demoDb = path.isAbsolute(str('DEMO_DATABASE_PATH', 'data/demo.sqlite'))
+    ? str('DEMO_DATABASE_PATH', 'data/demo.sqlite')
+    : path.join(ROOT, str('DEMO_DATABASE_PATH', 'data/demo.sqlite'));
+  if (path.resolve(realDb) === path.resolve(demoDb)) {
+    throw new Error(
+      'Mode DEMO : DEMO_DATABASE_PATH pointe sur la base réelle. ' +
+      'Les données de démonstration doivent rester dans un fichier séparé.'
+    );
+  }
 }
 
 let appSecret = str('APP_SECRET', '');
@@ -121,14 +147,14 @@ const config = {
   },
 
   db: {
-    path: abs(str('DATABASE_PATH', DEMO ? 'data/demo.sqlite' : 'data/boutique.sqlite')),
+    path: storagePath('DATABASE_PATH', 'DEMO_DATABASE_PATH', 'data/boutique.sqlite', 'data/demo.sqlite'),
     busyTimeoutMs: int('DB_BUSY_TIMEOUT_MS', 5000),
   },
 
   storage: {
-    mediaDir: abs(str('MEDIA_DIR', DEMO ? 'data/demo-media' : 'data/media')),
-    importDir: abs(str('IMPORT_DIR', DEMO ? 'data/demo-imports' : 'data/imports')),
-    backupDir: abs(str('BACKUP_DIR', DEMO ? 'data/demo-backups' : 'data/backups')),
+    mediaDir: storagePath('MEDIA_DIR', 'DEMO_MEDIA_DIR', 'data/media', 'data/demo-media'),
+    importDir: storagePath('IMPORT_DIR', 'DEMO_IMPORT_DIR', 'data/imports', 'data/demo-imports'),
+    backupDir: storagePath('BACKUP_DIR', 'DEMO_BACKUP_DIR', 'data/backups', 'data/demo-backups'),
     maxUploadBytes: int('MAX_UPLOAD_BYTES', 8 * 1024 * 1024),
     allowedImageTypes: str('ALLOWED_IMAGE_TYPES', 'image/jpeg,image/png,image/webp,image/avif')
       .split(',')

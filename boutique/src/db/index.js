@@ -104,18 +104,58 @@ function migrate(instance = getDb()) {
   return results;
 }
 
+/**
+ * Compte les marqueurs `?` d'une requête, en ignorant ceux qui apparaissent
+ * dans une chaîne SQL (ex. `WHERE note = 'pourquoi ?'`).
+ */
+function countPlaceholders(sql) {
+  let count = 0;
+  let inString = false;
+  for (let i = 0; i < sql.length; i += 1) {
+    const c = sql[i];
+    if (c === "'") {
+      // '' est une apostrophe échappée dans SQL : on ne sort pas de la chaîne.
+      if (inString && sql[i + 1] === "'") { i += 1; continue; }
+      inString = !inString;
+    } else if (c === '?' && !inString) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * Vérifie que le nombre de valeurs liées correspond au nombre de marqueurs.
+ * Sans ce contrôle, SQLite renvoie « column index out of range » sans indiquer
+ * quelle requête est en cause — ce qui rend le bogue très coûteux à trouver.
+ */
+function assertParams(sql, params) {
+  const expected = countPlaceholders(sql);
+  if (expected !== params.length) {
+    const err = new Error(
+      `Requête SQL incohérente : ${expected} marqueur(s) \`?\` pour ${params.length} valeur(s) liée(s).\n` +
+      `SQL : ${String(sql).replace(/\s+/g, ' ').slice(0, 300)}`
+    );
+    err.code = 'SQL_PARAM_MISMATCH';
+    throw err;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Requêtes                                                            */
 /* ------------------------------------------------------------------ */
 function all(sql, params = []) {
+  assertParams(sql, params);
   return getDb().prepare(sql).all(...params);
 }
 
 function get(sql, params = []) {
+  assertParams(sql, params);
   return getDb().prepare(sql).get(...params) || null;
 }
 
 function run(sql, params = []) {
+  assertParams(sql, params);
   return getDb().prepare(sql).run(...params);
 }
 
@@ -258,5 +298,6 @@ module.exports = {
   tableExists,
   integrityCheck,
   TransactionError,
+  countPlaceholders,
   normalize,
 };

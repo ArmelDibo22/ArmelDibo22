@@ -368,7 +368,8 @@ function releaseReservations({ cartId = null, orderId = null, reservationIds = n
     params.push(...reservationIds.map(Number));
   }
   if (!where.length) return 0;
-  params.push('active');
+  // Le statut est un littéral SQL : aucun paramètre supplémentaire ne doit être
+  // poussé, sinon le nombre de valeurs liées dépasse le nombre de `?`.
   where.push("status = 'active'");
 
   const rows = db.all(`SELECT * FROM reservations WHERE ${where.join(' AND ')}`, params);
