@@ -199,7 +199,12 @@ const config = {
       windowMs: int('RATE_LIMIT_WINDOW_MS', 60_000),
       max: int('RATE_LIMIT_MAX', 240),
       authMax: int('RATE_LIMIT_AUTH_MAX', 10),
-      checkoutMax: int('RATE_LIMIT_CHECKOUT_MAX', 20),
+      // Fenêtre de 10 minutes (voir middleware/auth.js). Le plafond est volontairement
+      // large : la protection contre les commandes en double repose sur la clé
+      // d'idempotence et l'empreinte du panier, pas sur ce compteur. Une valeur trop
+      // basse pénaliserait des clients légitimes partageant une même adresse IP
+      // publique (CGNAT des opérateurs mobiles).
+      checkoutMax: int('RATE_LIMIT_CHECKOUT_MAX', 60),
       webhookMax: int('RATE_LIMIT_WEBHOOK_MAX', 300),
     },
   },

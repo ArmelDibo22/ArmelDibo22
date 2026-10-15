@@ -127,8 +127,7 @@ async function tokenOf(jar, pageUrl) {
 const sessions = new Map();
 
 /** Réutilise une session déjà ouverte : évite de saturer la limitation de débit. */
-async function sessionFor(key, email, password) {
-  if (sessions.has(key)) return sessions.get(key);
+async function sessionFor(key, email, password) {  if (sessions.has(key)) return sessions.get(key);
   const jar = new Jar(key);
   await login(jar, email, password);
   sessions.set(key, jar);
@@ -148,6 +147,23 @@ async function login(jar, email, password) {
 }
 
 const q1 = (sql, params = []) => db.get(sql, params);
+
+/**
+ * Un numéro de téléphone ivoirien qui n'est lié à aucun compte.
+ * Le parcours crée des clients à chaque exécution et un numéro déjà rattaché à
+ * un compte est refusé à l'inscription (à juste titre) : sans cette recherche,
+ * rejouer le parcours produirait un échec qui n'a rien à voir avec l'application.
+ */
+function freePhone(prefix = '07') {
+  const { normalizePhone } = require('../src/lib/validate');
+  for (let i = 0; i < 50; i += 1) {
+    const candidate = prefix + String(Math.floor(Math.random() * 100000000)).padStart(8, '0');
+    const normalized = normalizePhone(candidate);
+    if (!normalized) continue;
+    if (!db.get('SELECT id FROM customers WHERE phone = ?', [normalized])) return candidate;
+  }
+  throw new Error('Aucun numéro de téléphone libre trouvé pour le parcours.');
+}
 
 /**
  * Un article réellement vendable : publié, données confirmées, prix > 0, sans
@@ -225,6 +241,26 @@ const orderFromLocation = (location) => {
   if (byGateway) return q1('SELECT * FROM orders WHERE reference = ?', [decodeURIComponent(byGateway[1])]);
   return null;
 };
+
+/**
+ * Active un Mobile Money en bac à sable depuis l'administration.
+ * Aucun identifiant marchand réel n'existe : la passerelle de démonstration
+ * signe ses notifications avec la clé locale, et chaque étape qui a besoin
+ * d'un paiement en ligne peut donc rendre l'application autonome.
+ */
+async function enableSandboxMethod(code = 'wave') {
+  const admin = await adminSession();
+  const page = await hit(admin, 'GET', '/admin/reglages?onglet=paiements', { expect: 200 });
+  await hit(admin, 'POST', `/admin/reglages/paiements/${code}`, {
+    form: {
+      _csrf: meta(page.text, 'csrf-token'), enabled: '1', simulated: '1',
+      name: 'Wave (bac à sable)', modes: 'pickup,delivery', position: '1',
+      instructions: 'Paiement de démonstration : aucun argent réel n’est mouvementé.',
+    },
+    expect: 302,
+  });
+  return q1('SELECT * FROM payment_methods WHERE code = ?', [code]);
+}
 
 /* ------------------------------------------------------------------ */
 /* Étapes                                                              */
@@ -329,9 +365,13 @@ step('Administration : créer, modifier, dupliquer un article', async () => {
   });
   const nc = q1('SELECT * FROM products WHERE sku = ?', [sku2]);
   check('admin', 'un article dont les données ne sont pas confirmées n’est pas marqué confirmé', nc && nc.data_confirmed === 0);
-  const ncPage = await hit(new Jar('lecteur2'), 'GET', `/produit/${nc.slug}`, { expect: 200 });
-  check('admin', 'un article non confirmé n’est pas achetable en vitrine',
-    ncPage.text.includes('Indisponible à la vente') && /data-add-button[^>]*disabled/.test(ncPage.text));
+  check('admin', 'un article non confirmé ne reste pas publié', nc && nc.status === 'draft', nc ? `statut ${nc.status}` : 'article absent');
+  const ncPage = await hit(new Jar('lecteur2'), 'GET', `/produit/${nc.slug}`);
+  check('admin', 'un article non confirmé n’est pas exposé en vitrine', ncPage.status === 404, `statut ${ncPage.status}`);
+  const plan = await hit(new Jar('lecteur3'), 'GET', '/sitemap.xml', { expect: 200 });
+  check('admin', 'un article non confirmé est absent du plan du site', !plan.text.includes(nc.slug));
+  check('admin', 'l’article non confirmé reste modifiable en administration',
+    (await hit(admin, 'GET', `/admin/produits/${nc.id}`, { expect: 200 })).status === 200);
 });
 
 step('Import CSV assisté : aperçu, exécution, rapport', async () => {
@@ -529,17 +569,7 @@ step('Livraison sur devis : aucun frais inventé, accord du client requis', asyn
 });
 
 step('Paiement Mobile Money en bac à sable', async () => {
-  const admin = await adminSession();
-  const settingsPage = await hit(admin, 'GET', '/admin/reglages?onglet=paiements', { expect: 200 });
-  await hit(admin, 'POST', '/admin/reglages/paiements/wave', {
-    form: {
-      _csrf: meta(settingsPage.text, 'csrf-token'), enabled: '1', simulated: '1',
-      name: 'Wave (bac à sable)', modes: 'pickup,delivery', position: '1',
-      instructions: 'Paiement de démonstration : aucun argent réel n’est mouvementé.',
-    },
-    expect: 302,
-  });
-  const method = q1("SELECT * FROM payment_methods WHERE code = 'wave'");
+  const method = await enableSandboxMethod('wave');
   check('momo', 'un Mobile Money est activable en bac à sable depuis l’administration', Boolean(method.enabled));
   check('momo', 'il reste marqué non configuré (pas d’identifiants marchands)', method.configured === 0);
   check('momo', 'l’activation d’un Mobile Money sans identifiants ni bac à sable est refusée', (() => {
@@ -738,6 +768,719 @@ step('Séparation des rôles et des données', async () => {
   check('données', 'le suivi n’expose aucune note interne', !/note interne/i.test(view.text));
 });
 
+/* ------------------------------------------------------------------ */
+/* Catégories, modifications en masse, photos, retours, compte client  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Deux images réelles (un grand JPEG et un petit PNG) fabriquées à la volée :
+ * les téléversements doivent être testés avec de vrais fichiers, pas avec des
+ * octets arbitraires qui seraient rejetés à juste titre.
+ */
+async function sampleImages() {
+  const sharp = require('sharp');
+  const svg = (w, h, texte, fond) => Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`
+    + `<rect width="100%" height="100%" fill="${fond}"/>`
+    + `<text x="50%" y="54%" font-family="sans-serif" font-size="${Math.round(w / 14)}" fill="#ffffff" `
+    + `text-anchor="middle" dominant-baseline="middle">${texte}</text></svg>`
+  );
+  return {
+    grande: await sharp(svg(2400, 1800, 'Photo de parcours', '#123a6b')).jpeg({ quality: 92 }).toBuffer(),
+    petite: await sharp(svg(640, 640, 'Detail', '#b08d2f')).png().toBuffer(),
+  };
+}
+
+step('Catégories : création, renommage, ordre, archivage, suppression', async () => {
+  const admin = await adminSession();
+  const page = await hit(admin, 'GET', '/admin/categories', { expect: 200 });
+  const token = meta(page.text, 'csrf-token');
+
+  const parentName = `Papeterie parcours ${STAMP}`;
+  const created = await hit(admin, 'POST', '/admin/categories', {
+    form: {
+      _csrf: token, name: parentName, parent_id: '', slug: '',
+      description: 'Catégorie créée par le parcours de vérification.',
+    },
+    expect: 302,
+  });
+  const parent = q1('SELECT * FROM categories WHERE name = ?', [parentName]);
+  if (!check('catégories', 'une catégorie est créée depuis l’administration', Boolean(parent), created.location)) return;
+  check('catégories', 'un identifiant de lien (slug) unique est généré à partir du nom',
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parent.slug), parent.slug);
+  check('catégories', 'la création est journalisée dans l’audit',
+    db.all("SELECT * FROM audit_log WHERE action = 'category.create'").length >= 1);
+
+  const childName = `Sous-catégorie parcours ${STAMP}`;
+  await hit(admin, 'POST', '/admin/categories', {
+    form: { _csrf: token, name: childName, parent_id: String(parent.id), slug: '', description: '' }, expect: 302,
+  });
+  const child = q1('SELECT * FROM categories WHERE name = ?', [childName]);
+  check('catégories', 'une sous-catégorie est rattachée à son parent', Boolean(child) && child.parent_id === parent.id);
+
+  const grandName = `Rayon parcours ${STAMP}`;
+  await hit(admin, 'POST', '/admin/categories', {
+    form: { _csrf: token, name: grandName, parent_id: String(child.id), slug: '', description: '' }, expect: 302,
+  });
+  const grand = q1('SELECT * FROM categories WHERE name = ?', [grandName]);
+  check('catégories', 'l’arborescence accepte trois niveaux', Boolean(grand) && grand.parent_id === child.id);
+  if (!child || !grand) return;
+
+  const catalog = await hit(new Jar('cat-lecteur'), 'GET', '/catalogue', { expect: 200 });
+  check('catégories', 'la catégorie créée apparaît dans la navigation publique', catalog.text.includes(parentName));
+  check('catégories', 'sa page publique répond',
+    (await hit(new Jar('cat-lecteur2'), 'GET', `/categorie/${parent.slug}`, { expect: 200 })).status === 200);
+
+  // --- Renommage -------------------------------------------------------
+  const renamed = `${parentName} (renommée)`;
+  const newSlug = `parcours-renommee-${STAMP}`.toLowerCase();
+  await hit(admin, 'POST', `/admin/categories/${parent.id}`, {
+    form: {
+      _csrf: token, name: renamed, slug: newSlug, parent_id: '',
+      description: 'Renommée par le parcours.', position: String(parent.position),
+    },
+    expect: 302,
+  });
+  const afterRename = q1('SELECT * FROM categories WHERE id = ?', [parent.id]);
+  check('catégories', 'une catégorie est renommée depuis l’administration', afterRename.name === renamed);
+  check('catégories', 'le slug choisi remplace l’ancien', afterRename.slug === newSlug, afterRename.slug);
+  check('catégories', 'l’ancienne adresse publique cesse d’exister',
+    (await hit(new Jar('cat-lecteur3'), 'GET', `/categorie/${parent.slug}`)).status === 404);
+  check('catégories', 'la nouvelle adresse publique répond',
+    (await hit(new Jar('cat-lecteur4'), 'GET', `/categorie/${newSlug}`, { expect: 200 })).status === 200);
+
+  // --- Réordonnancement ------------------------------------------------
+  const reorder = await hit(admin, 'POST', '/admin/categories/reordonner', {
+    form: {
+      _csrf: token,
+      order: JSON.stringify([{ id: parent.id, position: 91 }, { id: child.id, position: 92 }, { id: grand.id, position: 93 }]),
+    },
+    headers: { 'x-requested-with': 'XMLHttpRequest' },
+    expect: 200,
+  });
+  check('catégories', 'le réordonnancement répond en JSON à l’administration', /"ok"\s*:\s*true/.test(reorder.text), reorder.text.slice(0, 60));
+  const expected = { [parent.id]: 91, [child.id]: 92, [grand.id]: 93 };
+  const positions = db.all('SELECT id, position FROM categories WHERE id IN (?, ?, ?)', [parent.id, child.id, grand.id]);
+  check('catégories', 'l’ordre demandé est enregistré en base',
+    positions.length === 3 && positions.every((p) => expected[p.id] === p.position),
+    positions.map((p) => `${p.id}→${p.position}`).join(' · '));
+
+  // --- Archivage -------------------------------------------------------
+  await hit(admin, 'POST', `/admin/categories/${parent.id}`, {
+    form: { _csrf: token, name: renamed, slug: newSlug, parent_id: '', description: '', position: '91', archived: '1' },
+    expect: 302,
+  });
+  check('catégories', 'l’archivage d’une catégorie est enregistré',
+    q1('SELECT archived FROM categories WHERE id = ?', [parent.id]).archived === 1);
+  const afterArchive = await hit(new Jar('cat-lecteur5'), 'GET', '/catalogue', { expect: 200 });
+  check('catégories', 'une catégorie archivée n’est plus proposée en vitrine', !afterArchive.text.includes(renamed));
+  check('catégories', 'l’administration continue de voir les catégories archivées',
+    (await hit(admin, 'GET', '/admin/categories', { expect: 200 })).text.includes(renamed));
+  await hit(admin, 'POST', `/admin/categories/${parent.id}`, {
+    form: { _csrf: token, name: renamed, slug: newSlug, parent_id: '', description: '', position: '91', archived: '0' },
+    expect: 302,
+  });
+  check('catégories', 'une catégorie archivée peut être remise en ligne',
+    q1('SELECT archived FROM categories WHERE id = ?', [parent.id]).archived === 0);
+
+  // --- Déplacement en masse puis suppressions --------------------------
+  const cible = q1(
+    `SELECT p.id, p.slug, p.category_id FROM products p
+      WHERE p.status = 'published' AND p.has_variants = 0 AND p.is_kit = 0 AND p.category_id IS NOT NULL
+      ORDER BY p.id ASC LIMIT 1`
+  );
+  const listPage = await hit(admin, 'GET', '/admin/produits', { expect: 200 });
+  const moveForm = (categoryId, ids) => {
+    const form = new URLSearchParams();
+    form.set('_csrf', meta(listPage.text, 'csrf-token'));
+    for (const id of ids) form.append('ids[]', String(id));
+    form.set('action', 'categorie');
+    form.set('category_id', String(categoryId));
+    return form;
+  };
+  await hit(admin, 'POST', '/admin/produits/masse', { form: moveForm(grand.id, [cible.id]), expect: 302 });
+  check('catégories', 'des articles sont déplacés en masse vers une autre catégorie',
+    q1('SELECT category_id FROM products WHERE id = ?', [cible.id]).category_id === grand.id);
+
+  await hit(admin, 'POST', `/admin/categories/${child.id}/supprimer`, { form: { _csrf: token }, expect: 302 });
+  check('catégories', 'une catégorie peut être supprimée', q1('SELECT id FROM categories WHERE id = ?', [child.id]) === null);
+  check('catégories', 'les sous-catégories orphelines sont rattachées au niveau supérieur',
+    q1('SELECT parent_id FROM categories WHERE id = ?', [grand.id]).parent_id === parent.id);
+  check('catégories', 'les articles de la sous-catégorie survivante conservent leur classement',
+    q1('SELECT category_id FROM products WHERE id = ?', [cible.id]).category_id === grand.id);
+
+  await hit(admin, 'POST', `/admin/categories/${grand.id}/supprimer`, { form: { _csrf: token }, expect: 302 });
+  const detached = q1('SELECT id, category_id FROM products WHERE id = ?', [cible.id]);
+  check('catégories', 'supprimer une catégorie ne supprime pas ses articles',
+    Boolean(detached) && detached.category_id === null);
+  check('catégories', 'un article détaché de sa catégorie reste en ligne sans erreur',
+    (await hit(new Jar('cat-lecteur6'), 'GET', `/produit/${cible.slug}`, { expect: 200 })).status === 200);
+
+  await hit(admin, 'POST', '/admin/produits/masse', { form: moveForm(cible.category_id, [cible.id]), expect: 302 });
+  check('catégories', 'l’article retrouve sa catégorie d’origine',
+    q1('SELECT category_id FROM products WHERE id = ?', [cible.id]).category_id === cible.category_id);
+  await hit(admin, 'POST', `/admin/categories/${parent.id}/supprimer`, { form: { _csrf: token }, expect: 302 });
+  check('catégories', 'les catégories du parcours sont nettoyées',
+    db.all('SELECT id FROM categories WHERE name LIKE ?', [`%parcours ${STAMP}%`]).length === 0);
+
+  // --- Droits ----------------------------------------------------------
+  const vendorEmail = `vendeur.cat.${STAMP}@test.local`;
+  require('../src/domain/users').createUser({
+    email: vendorEmail, password: 'Vendeur-Parcours-2026!', fullName: 'Vendeur catégories',
+    role: 'vendor', canConfirmCash: false, active: true,
+  }, q1("SELECT * FROM users WHERE role = 'admin' LIMIT 1"));
+  const vendor = await vendorSession(vendorEmail, 'Vendeur-Parcours-2026!');
+  const vendorPage = await hit(vendor, 'GET', '/admin/categories', { expect: 200 });
+  const vendorName = `Catégorie vendeur ${STAMP}`;
+  await hit(vendor, 'POST', '/admin/categories', {
+    form: { _csrf: meta(vendorPage.text, 'csrf-token'), name: vendorName, parent_id: '', slug: '', description: '' },
+    expect: 302,
+  });
+  const vendorCat = q1('SELECT * FROM categories WHERE name = ?', [vendorName]);
+  check('catégories', 'un vendeur peut créer une catégorie', Boolean(vendorCat));
+  if (vendorCat) {
+    const refusal = await hit(vendor, 'POST', `/admin/categories/${vendorCat.id}/supprimer`, {
+      form: { _csrf: meta(vendorPage.text, 'csrf-token') }, expect: 403,
+    });
+    check('catégories', 'un vendeur ne peut pas supprimer une catégorie',
+      refusal.status === 403 && q1('SELECT id FROM categories WHERE id = ?', [vendorCat.id]) !== null);
+    await hit(admin, 'POST', `/admin/categories/${vendorCat.id}/supprimer`, { form: { _csrf: token }, expect: 302 });
+  }
+
+  const anonymous = new Jar('cat-anonyme');
+  const pirateName = `Pirate ${STAMP}`;
+  const pirate = await hit(anonymous, 'POST', '/admin/categories', { form: { _csrf: token, name: pirateName, parent_id: '', slug: '' } });
+  check('catégories', 'un visiteur non connecté ne crée pas de catégorie',
+    [302, 403].includes(pirate.status) && q1('SELECT id FROM categories WHERE name = ?', [pirateName]) === null,
+    `statut ${pirate.status}`);
+});
+
+step('Modifications en masse du catalogue', async () => {
+  const admin = await adminSession();
+  const page = await hit(admin, 'GET', '/admin/produits', { expect: 200 });
+  const token = meta(page.text, 'csrf-token');
+
+  const targets = db.all(
+    `SELECT p.id, p.sku, p.slug, p.price, p.featured, p.low_stock_threshold
+       FROM products p
+      WHERE p.status = 'published' AND p.data_confirmed = 1 AND p.price > 0
+        AND p.has_variants = 0 AND p.is_kit = 0 AND p.sku IS NOT NULL AND p.sku != ''
+      ORDER BY p.id ASC LIMIT 2`
+  );
+  if (!check('masse', 'deux articles publiés servent de cible aux modifications en masse', targets.length === 2,
+    `${targets.length} cible(s)`)) return;
+
+  const bulk = (extra, list = targets) => {
+    const form = new URLSearchParams();
+    form.set('_csrf', token);
+    for (const t of list) form.append('ids[]', String(t.id));
+    for (const [k, v] of Object.entries(extra)) form.set(k, String(v));
+    return hit(admin, 'POST', '/admin/produits/masse', { form, expect: 302 });
+  };
+  const rows = () => db.all(
+    `SELECT * FROM products WHERE id IN (${targets.map(() => '?').join(', ')}) ORDER BY id ASC`,
+    targets.map((t) => t.id)
+  );
+  const stockOf = (id) => q1('SELECT qty_on_hand, qty_reserved FROM stock_items WHERE product_id = ? AND variant_id IS NULL', [id]);
+
+  // --- Prix ------------------------------------------------------------
+  await bulk({ action: 'prix', price_percent: '10' });
+  const plusTen = rows();
+  check('masse', 'une variation de prix en pourcentage s’applique à toute la sélection',
+    plusTen.every((r, i) => r.price === Math.round(targets[i].price * 1.1)),
+    plusTen.map((r) => `${r.sku} → ${money.format(r.price)}`).join(' · '));
+  await bulk({ action: 'prix', price_set: '2500' });
+  check('masse', 'un prix unique peut être imposé à plusieurs articles', rows().every((r) => r.price === 2500));
+  for (const t of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    await bulk({ action: 'prix', price_set: t.price }, [t]);
+  }
+  check('masse', 'les prix d’origine sont restaurés', rows().every((r, i) => r.price === targets[i].price));
+
+  // --- Mise en avant et seuil d'alerte ---------------------------------
+  await bulk({ action: 'mise_en_avant', featured: '1' });
+  check('masse', 'la mise en avant s’applique en masse', rows().every((r) => r.featured === 1));
+  await bulk({ action: 'seuil', low_stock_threshold: '7' });
+  check('masse', 'le seuil d’alerte de stock s’applique en masse', rows().every((r) => r.low_stock_threshold === 7));
+
+  // --- Stock -----------------------------------------------------------
+  const before = targets.map((t) => stockOf(t.id));
+  await bulk({ action: 'stock', stock_delta: '5' });
+  const after = targets.map((t) => stockOf(t.id));
+  check('masse', 'un ajustement de stock en masse augmente le stock physique',
+    after.every((s, i) => s.qty_on_hand === before[i].qty_on_hand + 5),
+    after.map((s, i) => `${before[i].qty_on_hand}→${s.qty_on_hand}`).join(' · '));
+  check('masse', 'chaque ajustement de stock en masse est journalisé',
+    targets.every((t) => db.all(
+      "SELECT * FROM stock_movements WHERE product_id = ? AND reason = 'ajustement' AND note = 'Modification en masse'",
+      [t.id]
+    ).length >= 1));
+  await bulk({ action: 'stock', stock_delta: '-999999' });
+  check('masse', 'un ajustement qui rendrait le stock négatif est refusé sans rien casser',
+    targets.every((t, i) => stockOf(t.id).qty_on_hand === before[i].qty_on_hand + 5));
+  await bulk({ action: 'stock', stock_delta: '-5' });
+  check('masse', 'le stock revient à son niveau initial',
+    targets.every((t, i) => stockOf(t.id).qty_on_hand === before[i].qty_on_hand));
+
+  // --- Garde-fou : confirmation retirée sur un article publié ----------
+  await bulk({ action: 'confirmation', data_confirmed: '0' });
+  const demoted = rows();
+  check('masse', 'retirer la confirmation d’un article publié le repasse en brouillon',
+    demoted.every((r) => r.status === 'draft' && r.data_confirmed === 0),
+    demoted.map((r) => `${r.sku}:${r.status}`).join(' · '));
+  const listing = await hit(admin, 'GET', '/admin/produits', { expect: 200 });
+  check('masse', 'l’administration signale la rétrogradation au lieu d’un simple succès',
+    /repassé|brouillon/i.test(listing.text));
+  const hidden = await hit(new Jar('masse-lecteur'), 'GET', `/produit/${targets[0].slug}`);
+  check('masse', 'un article non confirmé disparaît de la vitrine', hidden.status === 404, `statut ${hidden.status}`);
+  const plan = await hit(new Jar('masse-lecteur2'), 'GET', '/sitemap.xml', { expect: 200 });
+  check('masse', 'un article non confirmé est retiré du plan du site', !plan.text.includes(targets[0].slug));
+
+  await bulk({ action: 'confirmation', data_confirmed: '1' });
+  for (const t of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    await hit(admin, 'POST', `/admin/produits/${t.id}/statut`, { form: { _csrf: token, status: 'published' }, expect: 302 });
+  }
+  check('masse', 'les articles redeviennent publiés une fois les données confirmées',
+    rows().every((r) => r.status === 'published' && r.data_confirmed === 1));
+  check('masse', 'les articles sont à nouveau visibles en vitrine',
+    (await hit(new Jar('masse-lecteur3'), 'GET', `/produit/${targets[0].slug}`, { expect: 200 })).status === 200);
+
+  // --- Remise en état des autres attributs -----------------------------
+  for (const t of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    await bulk({ action: 'mise_en_avant', featured: t.featured ? '1' : '0' }, [t]);
+    // eslint-disable-next-line no-await-in-loop
+    await bulk({ action: 'seuil', low_stock_threshold: t.low_stock_threshold }, [t]);
+  }
+  check('masse', 'la mise en avant et le seuil d’alerte retrouvent leur valeur d’origine',
+    rows().every((r, i) => r.featured === targets[i].featured && r.low_stock_threshold === targets[i].low_stock_threshold));
+
+  // --- Cas limites -----------------------------------------------------
+  const empty = new URLSearchParams();
+  empty.set('_csrf', token);
+  empty.set('action', 'prix');
+  empty.set('price_set', '1');
+  await hit(admin, 'POST', '/admin/produits/masse', { form: empty, expect: 302 });
+  check('masse', 'une opération en masse sans sélection ne modifie rien',
+    rows().every((r, i) => r.price === targets[i].price));
+  await bulk({ action: 'inconnue' });
+  check('masse', 'une action en masse inconnue est ignorée', rows().every((r, i) => r.price === targets[i].price));
+  check('masse', 'les opérations en masse sont journalisées dans l’audit',
+    db.all("SELECT * FROM audit_log WHERE action = 'product.bulk_update'").length >= 1);
+
+  const anonymous = new Jar('masse-anonyme');
+  const forbidden = await hit(anonymous, 'POST', '/admin/produits/masse', {
+    form: { _csrf: token, action: 'prix', price_set: '1', 'ids[]': String(targets[0].id) },
+  });
+  check('masse', 'un visiteur non connecté ne modifie pas le catalogue en masse',
+    [302, 403].includes(forbidden.status) && rows()[0].price === targets[0].price, `statut ${forbidden.status}`);
+});
+
+step('Photos : téléversement, image principale, ordre, fichiers refusés', async () => {
+  const fs = require('node:fs');
+  const admin = await adminSession();
+  const sku = ref('IMG');
+  const category = q1("SELECT id FROM categories WHERE slug = 'cahiers-registres'") || q1('SELECT id FROM categories LIMIT 1');
+  const formPage = await hit(admin, 'GET', '/admin/produits/nouveau', { expect: 200 });
+  const token = meta(formPage.text, 'csrf-token');
+  await hit(admin, 'POST', '/admin/produits/nouveau', {
+    form: {
+      _csrf: token, name: `Article photos ${sku}`, sku, category_id: String(category.id),
+      short_description: 'Article servant au contrôle du téléversement de photos.',
+      price: '3500', qty: '8', low_stock_threshold: '2', track_stock: '1', data_confirmed: '1',
+      status: 'published', sale_unit: 'piece', product_condition: 'neuf',
+    },
+    expect: 302,
+  });
+  const product = q1('SELECT * FROM products WHERE sku = ?', [sku]);
+  if (!check('photos', 'un article publié sans photo sert de support au contrôle', Boolean(product))) return;
+
+  const { grande, petite } = await sampleImages();
+  const envoi = new FormData();
+  envoi.append('images', new Blob([grande], { type: 'image/jpeg' }), 'photo-1.jpg');
+  envoi.append('images', new Blob([petite], { type: 'image/png' }), 'photo-2.png');
+  await hit(admin, 'POST', `/admin/produits/${product.id}/images`, {
+    form: envoi, headers: { 'x-csrf-token': token }, expect: 302,
+  });
+
+  const attached = db.all(
+    `SELECT pi.id, pi.position, pi.is_primary, pi.media_id, m.file_key, m.width, m.height, m.bytes, m.mime
+       FROM product_images pi JOIN media_files m ON m.id = pi.media_id
+      WHERE pi.product_id = ? ORDER BY pi.position ASC`,
+    [product.id]
+  );
+  check('photos', 'deux photos téléversées sont rattachées à l’article', attached.length === 2, `${attached.length} image(s)`);
+  if (attached.length !== 2) return;
+  check('photos', 'la première photo devient l’image principale', attached[0].is_primary === 1 && attached[1].is_primary === 0);
+  check('photos', 'les dimensions réelles des images sont lues sur les octets', attached[0].width === 2400 && attached[1].width === 640,
+    attached.map((a) => `${a.width}×${a.height}`).join(' · '));
+  check('photos', 'le format d’origine est conservé en base', attached[0].mime === 'image/jpeg' && attached[1].mime === 'image/png');
+
+  const mediaRoot = config.storage.mediaDir;
+  check('photos', 'les fichiers sont écrits dans le stockage de démonstration',
+    attached.every((a) => fs.existsSync(path.join(mediaRoot, a.file_key))),
+    path.basename(mediaRoot));
+  const derived = fs.readdirSync(path.join(mediaRoot, path.dirname(attached[0].file_key)));
+  check('photos', 'des dérivés WebP réduits sont produits pour la vitrine',
+    derived.some((f) => f.endsWith('.thumb.webp')) && derived.some((f) => f.endsWith('.large.webp')),
+    derived.filter((f) => f.endsWith('.webp')).length + ' dérivé(s)');
+
+  // Service des dérivés : la vignette doit être plus légère que l'original.
+  const thumb = await fetch(`${BASE}/media/${attached[0].file_key}?s=thumb`, { headers: { accept: 'image/webp,image/*' } });
+  const thumbBytes = Buffer.from(await thumb.arrayBuffer());
+  const sharp = require('sharp');
+  const thumbMeta = await sharp(thumbBytes).metadata();
+  check('photos', 'la vignette servie est redimensionnée (pas l’original de 2400 px)',
+    thumb.status === 200 && thumbMeta.width <= 320, `${thumbMeta.width}×${thumbMeta.height}`);
+  check('photos', 'la vignette est servie en WebP et pèse moins lourd que l’original',
+    /webp/.test(thumb.headers.get('content-type') || '') && thumbBytes.length < attached[0].bytes,
+    `${thumbBytes.length} o contre ${attached[0].bytes} o`);
+  const cached = thumb.headers.get('cache-control') || '';
+  check('photos', 'les images sont servies avec un cache long', /immutable/.test(cached), cached);
+
+  const publicPage = await hit(new Jar('photos-lecteur'), 'GET', `/produit/${product.slug}`, { expect: 200 });
+  const baseName = path.basename(attached[0].file_key, path.extname(attached[0].file_key));
+  check('photos', 'la photo principale s’affiche sur la fiche publique', publicPage.text.includes(baseName));
+
+  // --- Image principale et ordre ---------------------------------------
+  await hit(admin, 'POST', `/admin/produits/${product.id}/images/${attached[1].id}/primaire`, {
+    form: { _csrf: token }, expect: 302,
+  });
+  let primaries = db.all('SELECT id, is_primary FROM product_images WHERE product_id = ?', [product.id]);
+  check('photos', 'l’image principale est modifiable',
+    primaries.filter((p) => p.is_primary === 1).length === 1
+    && primaries.find((p) => p.id === attached[1].id).is_primary === 1);
+
+  await hit(admin, 'POST', `/admin/produits/${product.id}/images/reordonner`, {
+    form: { _csrf: token, order: `${attached[1].id},${attached[0].id}` },
+    headers: { 'x-csrf-token': token, 'x-requested-with': 'XMLHttpRequest' },
+    expect: 200,
+  });
+  const ordered = db.all('SELECT id, position, is_primary FROM product_images WHERE product_id = ? ORDER BY position ASC', [product.id]);
+  check('photos', 'l’ordre des photos est enregistré', ordered[0].id === attached[1].id && ordered[1].id === attached[0].id);
+  check('photos', 'la première photo de la liste redevient l’image principale',
+    ordered[0].is_primary === 1 && ordered[1].is_primary === 0);
+
+  // --- Suppression -----------------------------------------------------
+  await hit(admin, 'POST', `/admin/produits/${product.id}/images/${attached[1].id}/supprimer`, {
+    form: { _csrf: token }, expect: 302,
+  });
+  primaries = db.all('SELECT id, is_primary FROM product_images WHERE product_id = ?', [product.id]);
+  check('photos', 'une photo peut être supprimée', primaries.length === 1 && primaries[0].id === attached[0].id);
+  check('photos', 'la photo restante redevient principale', primaries[0].is_primary === 1);
+  check('photos', 'le média devenu orphelin est retiré de la base',
+    q1('SELECT id FROM media_files WHERE id = ?', [attached[1].media_id]) === null);
+  check('photos', 'le fichier correspondant est retiré du disque',
+    !fs.existsSync(path.join(mediaRoot, attached[1].file_key)));
+
+  // --- Fichiers refusés ------------------------------------------------
+  const texte = new FormData();
+  texte.append('images', new Blob([Buffer.from('ceci n est pas une image')], { type: 'text/plain' }), 'note.txt');
+  const refused = await hit(admin, 'POST', `/admin/produits/${product.id}/images`, {
+    form: texte, headers: { 'x-csrf-token': token },
+  });
+  check('photos', 'un fichier qui n’est pas une image est refusé', refused.status === 415, `statut ${refused.status}`);
+  check('photos', 'aucun média n’est créé pour un fichier refusé',
+    db.all('SELECT id FROM product_images WHERE product_id = ?', [product.id]).length === 1);
+
+  // Un fichier qui se déclare image mais dont le contenu n'en est pas une :
+  // le type est vérifié sur les octets, jamais sur l'extension ni sur l'en-tête.
+  const deguise = new FormData();
+  deguise.append('images', new Blob([Buffer.from('texte mais pas une image')], { type: 'image/jpeg' }), 'faux.jpg');
+  await hit(admin, 'POST', `/admin/produits/${product.id}/images`, {
+    form: deguise, headers: { 'x-csrf-token': token }, expect: 302,
+  });
+  check('photos', 'un contenu déguisé en image est écarté après lecture des octets',
+    db.all('SELECT id FROM product_images WHERE product_id = ?', [product.id]).length === 1);
+  let fiche = await hit(admin, 'GET', `/admin/produits/${product.id}`, { expect: 200 });
+  check('photos', 'l’administration annonce le fichier écarté au lieu d’un succès',
+    /aucune image enregistrée/i.test(fiche.text) && !/image\(s\) ajoutée/.test(fiche.text),
+    /aucune image enregistrée/i.test(fiche.text) ? 'message explicite' : 'message attendu absent');
+
+  // Envoi mixte : une vraie photo et un fichier invalide dans la même requête.
+  // La photo valide doit passer, l'autre être écartée ET signalée.
+  const mixte = new FormData();
+  mixte.append('images', new Blob([petite], { type: 'image/png' }), 'bonne.png');
+  mixte.append('images', new Blob([Buffer.from('pas une image')], { type: 'image/png' }), 'mauvaise.png');
+  await hit(admin, 'POST', `/admin/produits/${product.id}/images`, {
+    form: mixte, headers: { 'x-csrf-token': token }, expect: 302,
+  });
+  check('photos', 'un envoi mixte enregistre la photo valide et écarte l’autre',
+    db.all('SELECT id FROM product_images WHERE product_id = ?', [product.id]).length === 2);
+  fiche = await hit(admin, 'GET', `/admin/produits/${product.id}`, { expect: 200 });
+  check('photos', 'le message distingue les photos enregistrées des fichiers écartés',
+    /1 image\(s\) ajoutée/.test(fiche.text) && /1 fichier\(s\) écarté/.test(fiche.text) && /mauvaise\.png/.test(fiche.text));
+});
+
+step('Retour et remboursement d’une commande payée', async () => {
+  const admin = await adminSession();
+  // Le remboursement porte sur une commande réellement encaissée : un Mobile
+  // Money en bac à sable est activé depuis l'administration (aucun identifiant
+  // marchand, aucun argent réel).
+  const wave = await enableSandboxMethod('wave');
+  if (!check('remboursement', 'un Mobile Money en bac à sable est activé pour encaisser la commande',
+    Boolean(wave && wave.enabled))) return;
+  const product = sellableProduct(2);
+  if (!check('remboursement', 'un article avec au moins deux unités disponibles sert de support', Boolean(product))) return;
+  const before = stockLineOf(product.id);
+
+  const guest = new Jar('invite-remboursement');
+  await addToCart(guest, product.id, 2);
+  const { res } = await checkout(guest, {
+    mode: 'pickup', paiement: 'wave', nom: 'Aya Remboursement', telephone: '0708090807',
+  });
+  const order = orderFromLocation(res.location);
+  if (!check('remboursement', 'une commande de deux unités est créée', Boolean(order), res.location)) return;
+  const gateway = await hit(guest, 'GET', res.location, { expect: 200 });
+  await hit(guest, 'POST', `/paiements/simuler/${order.reference}`, {
+    form: { _csrf: meta(gateway.text, 'csrf-token'), action: 'succes' }, expect: 200,
+  });
+  const paid = q1('SELECT * FROM orders WHERE id = ?', [order.id]);
+  if (!check('remboursement', 'la commande est payée avant tout remboursement',
+    paid.payment_status === 'paid' && paid.amount_paid === paid.total, `${paid.payment_status} · ${money.format(paid.amount_paid)}`)) return;
+
+  const line = q1('SELECT * FROM order_items WHERE order_id = ?', [order.id]);
+  const unit = Math.round(line.line_total / line.qty);
+  const adminPage = await hit(admin, 'GET', `/admin/commandes/${order.id}`, { expect: 200 });
+  const token = meta(adminPage.text, 'csrf-token');
+
+  // --- Un vendeur non habilité ne rembourse pas ------------------------
+  const vendorEmail = `vendeur.remb.${STAMP}@test.local`;
+  require('../src/domain/users').createUser({
+    email: vendorEmail, password: 'Vendeur-Parcours-2026!', fullName: 'Vendeur remboursements',
+    role: 'vendor', canConfirmCash: false, active: true,
+  }, q1("SELECT * FROM users WHERE role = 'admin' LIMIT 1"));
+  const vendor = await vendorSession(vendorEmail, 'Vendeur-Parcours-2026!');
+  const vendorPage = await hit(vendor, 'GET', `/admin/commandes/${order.id}`, { expect: 200 });
+  const refusal = await hit(vendor, 'POST', `/admin/commandes/${order.id}/remboursement`, {
+    form: { _csrf: meta(vendorPage.text, 'csrf-token'), kind: 'refund', amount: String(unit), reason: 'Tentative vendeur' },
+    expect: 403,
+  });
+  check('remboursement', 'un vendeur sans habilitation ne peut pas rembourser',
+    refusal.status === 403 && db.all('SELECT id FROM refunds WHERE order_id = ?', [order.id]).length === 0);
+
+  // --- Retour partiel, enregistré puis appliqué ------------------------
+  await hit(admin, 'POST', `/admin/commandes/${order.id}/remboursement`, {
+    form: {
+      _csrf: token, lignes: `${line.id}:1`, kind: 'return', amount: '',
+      method: 'wave', reason: 'Article rendu en boutique', restock: '1',
+    },
+    expect: 302,
+  });
+  const refund = q1('SELECT * FROM refunds WHERE order_id = ? ORDER BY id DESC LIMIT 1', [order.id]);
+  check('remboursement', 'un retour est enregistré en attente de validation', Boolean(refund) && refund.status === 'pending');
+  if (!refund) return;
+  check('remboursement', 'le montant est calculé d’après la ligne concernée, pas d’après le navigateur',
+    refund.amount === unit, `${money.format(refund.amount)} attendu ${money.format(unit)}`);
+  check('remboursement', 'la ligne retournée est tracée', db.all('SELECT * FROM refund_items WHERE refund_id = ?', [refund.id]).length === 1);
+  check('remboursement', 'un remboursement en attente ne modifie pas encore la commande',
+    q1('SELECT amount_refunded FROM orders WHERE id = ?', [order.id]).amount_refunded === 0);
+  check('remboursement', 'le stock n’est pas restitué avant la validation',
+    stockLineOf(product.id).qty_on_hand === before.qty_on_hand - 2);
+
+  await hit(admin, 'POST', `/admin/remboursements/${refund.id}/appliquer`, {
+    form: { _csrf: token, order_id: String(order.id) }, expect: 302,
+  });
+  const applied = q1('SELECT * FROM refunds WHERE id = ?', [refund.id]);
+  const partial = q1('SELECT * FROM orders WHERE id = ?', [order.id]);
+  check('remboursement', 'le remboursement appliqué est daté et attribué',
+    applied.status === 'done' && Boolean(applied.processed_at) && Boolean(applied.processed_by));
+  check('remboursement', 'la commande passe en remboursement partiel',
+    partial.payment_status === 'partially_refunded' && partial.status === 'partially_refunded',
+    `${partial.status} · ${partial.payment_status}`);
+  check('remboursement', 'le montant remboursé est cumulé sur la commande', partial.amount_refunded === unit);
+  check('remboursement', 'le retour avec remise en stock rend l’unité disponible',
+    stockLineOf(product.id).qty_on_hand === before.qty_on_hand - 1,
+    `${before.qty_on_hand} → ${stockLineOf(product.id).qty_on_hand}`);
+  check('remboursement', 'le mouvement de stock du retour est journalisé',
+    db.all("SELECT * FROM stock_movements WHERE product_id = ? AND reason = 'retour'", [product.id]).length >= 1);
+  check('remboursement', 'le paiement en ligne suit le remboursement',
+    Boolean(q1("SELECT id FROM payments WHERE order_id = ? AND status = 'partially_refunded'", [order.id])));
+  check('remboursement', 'un remboursement déjà appliqué ne peut pas être rejoué', (() => {
+    const countBefore = db.all('SELECT id FROM refunds WHERE order_id = ?', [order.id]).length;
+    require('../src/domain/orders').applyRefund(refund.id, { userId: 1 });
+    return db.all('SELECT id FROM refunds WHERE order_id = ?', [order.id]).length === countBefore
+      && q1('SELECT amount_refunded FROM orders WHERE id = ?', [order.id]).amount_refunded === unit;
+  })());
+
+  // --- Solde : remboursement intégral ----------------------------------
+  await hit(admin, 'POST', `/admin/commandes/${order.id}/remboursement`, {
+    form: {
+      _csrf: token, lignes: `${line.id}:1`, kind: 'refund', amount: '',
+      method: 'especes', reason: 'Solde du retour', restock: '1', appliquer: '1',
+    },
+    expect: 302,
+  });
+  const full = q1('SELECT * FROM orders WHERE id = ?', [order.id]);
+  check('remboursement', 'un remboursement peut être enregistré et appliqué en une fois',
+    db.all("SELECT * FROM refunds WHERE order_id = ? AND status = 'done'", [order.id]).length === 2);
+  check('remboursement', 'le remboursement intégral bascule la commande',
+    full.payment_status === 'refunded' && full.status === 'refunded', `${full.status} · ${full.payment_status}`);
+  check('remboursement', 'le stock est entièrement restitué',
+    stockLineOf(product.id).qty_on_hand === before.qty_on_hand);
+
+  // --- Montant excessif ------------------------------------------------
+  const avantTrop = q1('SELECT amount_refunded FROM orders WHERE id = ?', [order.id]).amount_refunded;
+  await hit(admin, 'POST', `/admin/commandes/${order.id}/remboursement`, {
+    form: { _csrf: token, kind: 'refund', amount: '5000', method: 'especes', reason: 'Trop-perçu', restock: '0' },
+    expect: 302,
+  });
+  check('remboursement', 'un remboursement supérieur au reste dû est refusé',
+    db.all('SELECT id FROM refunds WHERE order_id = ?', [order.id]).length === 2
+    && q1('SELECT amount_refunded FROM orders WHERE id = ?', [order.id]).amount_refunded === avantTrop);
+
+  // --- Visibilité client -----------------------------------------------
+  const normalise = (s) => String(s).replace(/[\u202f\u00a0\s]/g, '');
+  const suivi = await hit(new Jar('suivi-remboursement'), 'GET', `/suivi/${paid.tracking_token}`, { expect: 200 });
+  check('remboursement', 'le client voit le remboursement dans son suivi public', /rembours/i.test(suivi.text));
+  check('remboursement', 'le suivi public affiche le montant remboursé',
+    normalise(suivi.text).includes(normalise(money.format(full.amount_refunded))), money.format(full.amount_refunded));
+  const impression = await hit(admin, 'GET', `/admin/commandes/${order.id}/impression`, { expect: 200 });
+  check('remboursement', 'le récapitulatif imprimable mentionne le remboursement', /rembours/i.test(impression.text));
+  check('remboursement', 'les remboursements sont journalisés dans l’audit',
+    db.all("SELECT * FROM audit_log WHERE action LIKE '%refund%'").length >= 1);
+});
+
+step('Compte client facultatif : inscription, commandes, isolation, suppression', async () => {
+  const email = `client.parcours.${STAMP}-${Math.random().toString(36).slice(2, 6)}@example.com`;
+  const phone = freePhone();
+  const password = 'Daoukro-Client-2026!';
+
+  const anon = new Jar('client-anonyme');
+  check('compte', 'l’achat reste possible sans compte',
+    (await hit(anon, 'GET', '/catalogue', { expect: 200 })).status === 200);
+  check('compte', 'l’accès aux commandes du compte est réservé au client connecté',
+    (await hit(anon, 'GET', '/compte/commandes', { expect: 302 })).location.includes('/compte/connexion'));
+
+  const form = await hit(anon, 'GET', '/compte/inscription', { expect: 200 });
+  check('compte', 'la création de compte est proposée', /mot de passe/i.test(form.text));
+  check('compte', 'l’adresse e-mail n’est pas obligatoire (le téléphone suffit)',
+    !/name="email"[^>]*required/.test(form.text) && /name="phone"/.test(form.text));
+  check('compte', 'le consentement marketing est distinct et décoché par défaut',
+    /name="marketing"/.test(form.text) && !/name="marketing"[^>]*checked/.test(form.text));
+
+  const weak = await hit(anon, 'POST', '/compte/inscription', {
+    form: { _csrf: meta(form.text, 'csrf-token'), fullName: 'Client Parcours', email, phone, password: 'court' },
+    expect: 400,
+  });
+  check('compte', 'un mot de passe faible est refusé', weak.status === 400 && /mot de passe/i.test(weak.text));
+  check('compte', 'aucun compte n’est créé avec un mot de passe faible',
+    q1('SELECT id FROM customers WHERE email = ?', [email]) === null);
+
+  const opened = await hit(anon, 'POST', '/compte/inscription', {
+    form: { _csrf: meta(form.text, 'csrf-token'), fullName: 'Client Parcours', email, phone, password, marketing: '1' },
+    expect: 302,
+  });
+  const customer = q1('SELECT * FROM customers WHERE email = ?', [email]);
+  check('compte', 'le compte est créé et la session ouverte', Boolean(customer) && opened.location === '/compte', opened.location);
+  if (!customer) return;
+  check('compte', 'le mot de passe n’est jamais stocké en clair',
+    Boolean(customer.password_hash) && customer.password_hash !== password && customer.password_hash.length >= 32);
+  check('compte', 'le consentement marketing est horodaté', customer.marketing_consent === 1 && Boolean(customer.consent_at));
+
+  // Le même numéro ne peut pas ouvrir un second compte : c'est ce qui garantit
+  // qu'un client ne se dédouble pas et que ses commandes restent regroupées.
+  const doublonJar = new Jar('client-doublon');
+  const doublonForm = await hit(doublonJar, 'GET', '/compte/inscription', { expect: 200 });
+  const doublon = await hit(doublonJar, 'POST', '/compte/inscription', {
+    form: {
+      _csrf: meta(doublonForm.text, 'csrf-token'), fullName: 'Client Doublon',
+      email: `doublon.${STAMP}@example.com`, phone, password,
+    },
+  });
+  const telephones = db.all('SELECT id FROM customers WHERE phone = ?', [require('../src/lib/validate').normalizePhone(phone)]);
+  check('compte', 'un numéro déjà rattaché à un compte ne peut pas en ouvrir un second',
+    doublon.status === 409 && telephones.length === 1, `statut ${doublon.status} · ${telephones.length} compte(s)`);
+
+  const dash = await hit(anon, 'GET', '/compte', { expect: 200 });
+  check('compte', 'le tableau de bord du client répond', dash.text.includes('Client Parcours'));
+
+  // --- Commande rattachée au compte ------------------------------------
+  const product = sellableProduct(1);
+  await addToCart(anon, product.id, 1);
+  const { res } = await checkout(anon, {
+    mode: 'pickup', paiement: 'pay_at_pickup', nom: 'Client Parcours', telephone: phone, email,
+  });
+  const order = orderFromLocation(res.location);
+  check('compte', 'une commande passée avec un compte y est rattachée',
+    Boolean(order) && order.customer_id === customer.id, order ? `client ${order.customer_id}` : res.location);
+  if (!order) return;
+  const list = await hit(anon, 'GET', '/compte/commandes', { expect: 200 });
+  check('compte', 'le client retrouve sa commande dans son compte', list.text.includes(order.reference));
+  check('compte', 'le détail de la commande est consultable',
+    (await hit(anon, 'GET', `/compte/commande/${order.reference}`, { expect: 200 })).text.includes(order.reference));
+
+  // --- Isolation entre clients -----------------------------------------
+  const otherEmail = `client.second.${STAMP}-${Math.random().toString(36).slice(2, 6)}@example.com`;
+  require('../src/domain/users').registerCustomer({
+    email: otherEmail, phone: freePhone('05'), fullName: 'Client Second', password, marketingConsent: false,
+  });
+  const other = new Jar('client-second');
+  const loginPage = await hit(other, 'GET', '/compte/connexion', { expect: 200 });
+  await hit(other, 'POST', '/compte/connexion', {
+    form: { _csrf: meta(loginPage.text, 'csrf-token'), identifier: otherEmail, password, suite: '/compte' },
+    expect: 302,
+  });
+  const otherList = await hit(other, 'GET', '/compte/commandes', { expect: 200 });
+  check('compte', 'un autre client ne voit pas la commande du premier', !otherList.text.includes(order.reference));
+  check('compte', 'la commande d’un autre client lui renvoie 404',
+    (await hit(other, 'GET', `/compte/commande/${order.reference}`)).status === 404);
+  check('compte', 'aucune coordonnée du premier client n’est exposée au second',
+    !otherList.text.includes(email) && !otherList.text.includes('Client Parcours'));
+  check('compte', 'une session client n’ouvre aucun accès d’administration',
+    (await hit(other, 'GET', '/admin/commandes', { expect: 302 })).location.includes('/admin/connexion'));
+
+  // --- Paramètres et consentement --------------------------------------
+  const paramPage = await hit(anon, 'GET', '/compte/parametres', { expect: 200 });
+  await hit(anon, 'POST', '/compte/parametres', {
+    form: { _csrf: meta(paramPage.text, 'csrf-token'), fullName: 'Client Parcours Modifié', phone },
+    expect: 302,
+  });
+  const updated = q1('SELECT * FROM customers WHERE id = ?', [customer.id]);
+  check('compte', 'le client peut modifier ses informations', updated.full_name === 'Client Parcours Modifié');
+  check('compte', 'le consentement marketing est révocable', updated.marketing_consent === 0 && updated.consent_at === null);
+  check('compte', 'le retrait du consentement est journalisé',
+    db.all("SELECT * FROM audit_log WHERE action = 'consent.withdrawn' AND entity_id = ?", [String(customer.id)]).length >= 1);
+
+  // --- Mot de passe ----------------------------------------------------
+  const nouveau = 'Daoukro-Client-2027!';
+  const mdpPage = await hit(anon, 'GET', '/compte/parametres', { expect: 200 });
+  await hit(anon, 'POST', '/compte/mot-de-passe', {
+    form: { _csrf: meta(mdpPage.text, 'csrf-token'), current_password: password, new_password: nouveau },
+    expect: 302,
+  });
+  const retry = new Jar('client-nouveau-mdp');
+  const retryPage = await hit(retry, 'GET', '/compte/connexion', { expect: 200 });
+  const ancien = await hit(retry, 'POST', '/compte/connexion', {
+    form: { _csrf: meta(retryPage.text, 'csrf-token'), identifier: email, password, suite: '/compte' },
+  });
+  check('compte', 'l’ancien mot de passe cesse de fonctionner', ancien.status === 401, `statut ${ancien.status}`);
+  const nouveauLogin = await hit(retry, 'POST', '/compte/connexion', {
+    form: { _csrf: meta(retryPage.text, 'csrf-token'), identifier: email, password: nouveau, suite: '/compte' },
+    expect: 302,
+  });
+  check('compte', 'le nouveau mot de passe ouvre la session', nouveauLogin.location === '/compte');
+  check('compte', 'les commandes restent attachées au compte après changement de mot de passe',
+    (await hit(retry, 'GET', '/compte/commandes', { expect: 200 })).text.includes(order.reference));
+
+  // --- Suppression du compte -------------------------------------------
+  const delPage = await hit(retry, 'GET', '/compte/parametres', { expect: 200 });
+  await hit(retry, 'POST', '/compte/supprimer', { form: { _csrf: meta(delPage.text, 'csrf-token') }, expect: 302 });
+  const erased = q1('SELECT * FROM customers WHERE id = ?', [customer.id]);
+  check('compte', 'la suppression anonymise le compte',
+    erased.full_name === 'Compte supprimé' && erased.email === null && erased.password_hash === '');
+  check('compte', 'les commandes restent conservées pour la comptabilité',
+    Boolean(q1('SELECT reference FROM orders WHERE id = ?', [order.id]))
+    && q1('SELECT customer_id FROM orders WHERE id = ?', [order.id]).customer_id === customer.id);
+  check('compte', 'la commande reste consultable par son lien de suivi',
+    (await hit(new Jar('suivi-compte'), 'GET', `/suivi/${order.tracking_token}`, { expect: 200 })).text.includes(order.reference));
+  check('compte', 'la session est détruite après la suppression du compte',
+    (await hit(retry, 'GET', '/compte', { expect: 302 })).location.includes('/compte/connexion'));
+  check('compte', 'la suppression du compte est journalisée',
+    db.all("SELECT * FROM audit_log WHERE action = 'customer.deleted' AND entity_id = ?", [String(customer.id)]).length >= 1);
+});
+
 step('Caisse, statistiques et sauvegarde', async () => {
   const admin = await adminSession();
   const product = sellableProduct(1);
@@ -787,6 +1530,19 @@ step('Caisse, statistiques et sauvegarde', async () => {
 /* ------------------------------------------------------------------ */
 
 async function main() {
+  // Le parcours doit pouvoir être rejoué à la suite : les routes de connexion
+  // sont limitées à 10 tentatives par 5 minutes, le tunnel de commande à
+  // RATE_LIMIT_CHECKOUT_MAX soumissions par 10 minutes et l'ensemble du site à
+  // RATE_LIMIT_MAX requêtes par minute — le tout par adresse IP. Or le parcours
+  // se connecte plusieurs fois (administrateur, vendeurs, clients), passe une
+  // dizaine de commandes et enchaîne plus de 300 requêtes depuis 127.0.0.1. Les
+  // compteurs de la base de démonstration sont donc remis à zéro au démarrage.
+  // La limitation de débit elle-même n'est pas désactivée : elle reste vérifiée
+  // par tests/access.test.js.
+  try {
+    db.run("DELETE FROM rate_buckets WHERE key LIKE 'rl-auth:%' OR key LIKE 'rl-global:%' OR key LIKE 'rl-checkout:%'");
+  } catch { /* base non migrée : le parcours échouera plus loin de toute façon */ }
+
   let server = null;
   if (!BASE) {
     db.migrate();

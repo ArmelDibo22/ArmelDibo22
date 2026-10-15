@@ -472,6 +472,27 @@ function logEvent(orderId, scope, from, to, message, { public: isPublic = 0, act
   });
 }
 
+/**
+ * Journal d'audit de l'administration.
+ *
+ * `order_events` retrace la vie d'une commande (visible par le client pour les
+ * événements publics) ; `audit_log` répond à une autre question : QUI a pris la
+ * décision, et quand. Les mouvements d'argent — annulation, remboursement —
+ * doivent apparaître dans les deux.
+ */
+function audit(userId, action, orderId, detail) {
+  try {
+    db.insert('audit_log', {
+      user_id: userId || null,
+      actor: userId ? 'admin' : 'system',
+      action,
+      entity_type: 'order',
+      entity_id: String(orderId ?? ''),
+      detail: JSON.stringify(detail || {}),
+    });
+  } catch { /* l'audit ne doit jamais faire échouer l'opération */ }
+}
+
 /* ------------------------------------------------------------------ */
 /* Lecture                                                             */
 /* ------------------------------------------------------------------ */
@@ -771,10 +792,13 @@ function cancel(orderId, { reason = '', userId = null, restock = true } = {}) {
       });
       logEvent(orderId, 'order', order.status, 'cancelled', reason || 'Annulation après paiement : remboursement à traiter.', { public: 1, actorId: userId });
       if (restock) releaseStock(orderId, { userId, note: reason });
+      audit(userId, 'order.cancel', orderId, { reference: order.reference, reason, restock, paid: true });
     });
     return loadFull(orderId);
   }
-  return setStatus(orderId, 'cancelled', { userId, note: reason || 'Annulation de la commande' });
+  const cancelled = setStatus(orderId, 'cancelled', { userId, note: reason || 'Annulation de la commande' });
+  audit(userId, 'order.cancel', orderId, { reference: order.reference, reason, restock, paid: false });
+  return cancelled;
 }
 
 /* ------------------------------------------------------------------ */
@@ -879,6 +903,13 @@ function createRefund(orderId, { kind = 'refund', amount = 0, items = [], method
   }
 
   const refundId = db.transaction(() => {
+    // La ligne est TOUJOURS créée « en attente ». C'est `applyRefund` qui la
+    // passe à « done » et produit les effets : montant remboursé cumulé, statut
+    // de la commande, remise en stock, trace sur le paiement en ligne. Insérer
+    // directement la ligne à « done » court-circuitait ce garde-fou
+    // (`applyRefund` sort dès que le statut est déjà « done ») : le
+    // remboursement s'affichait comme appliqué alors que la commande et le
+    // stock ne bougeaient pas.
     const id = db.insert('refunds', {
       order_id: orderId,
       kind,
@@ -886,13 +917,17 @@ function createRefund(orderId, { kind = 'refund', amount = 0, items = [], method
       method: normalizeText(method).slice(0, 80),
       reason: normalizeText(reason).slice(0, 500),
       restock: restock ? 1 : 0,
-      status,
-      processed_by: status === 'done' ? userId : null,
-      processed_at: status === 'done' ? dates.nowIso() : null,
+      status: 'pending',
+      processed_by: null,
+      processed_at: null,
     });
     for (const l of lines) {
       db.insert('refund_items', { refund_id: id, order_item_id: l.orderItemId, qty: l.qty, amount: l.amount });
     }
+    audit(userId, 'refund.create', orderId, {
+      refundId: id, kind, amount: total, restock: Boolean(restock), applyNow: status === 'done',
+      reference: order.reference,
+    });
     if (status === 'done') applyRefund(id, { userId });
     return id;
   });
@@ -918,6 +953,16 @@ function applyRefund(refundId, { userId = null } = {}) {
     logEvent(refund.order_id, 'payment', order.payment_status, paymentStatus, `Remboursement de ${require('../lib/money').format(refund.amount)} (${refund.kind}).`, {
       public: 1,
       actorId: userId,
+    });
+    audit(userId, 'refund.apply', refund.order_id, {
+      refundId,
+      reference: order.reference,
+      kind: refund.kind,
+      amount: Number(refund.amount),
+      amountRefunded: refunded,
+      amountPaid: Number(order.amount_paid || 0),
+      paymentStatus,
+      restock: Boolean(refund.restock),
     });
 
     if (refund.restock) {

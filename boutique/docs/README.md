@@ -18,8 +18,8 @@ et **le développeur** qui reprendrait le code.
 
 ```bash
 npm run check      # 74 vérifications : toutes les pages répondent, aucun accès non autorisé
-npm run journey    # 121 vérifications : le métier complet est joué en HTTP réel (écrit des données)
-npm test           # 82 tests automatisés sur base isolée (n'écrit jamais dans la base réelle)
+npm run journey    # 252 vérifications en 16 étapes : le métier complet est joué en HTTP réel (écrit des données)
+npm test           # 86 tests automatisés sur base isolée (n'écrit jamais dans la base réelle)
 ```
 
 `npm run journey` **écrit** des articles et des commandes : il refuse de s'exécuter

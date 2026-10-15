@@ -40,7 +40,7 @@ Code et documentation : [`boutique/`](boutique) · Documentation : [`boutique/do
 | | |
 | --- | --- |
 | Stack | Node.js 22, Express 5, EJS, SQLite natif (WAL), CSS/JS vanilla, `sharp`, `exceljs` — sans étape de construction |
-| Vérification | **82 tests automatisés**, **74 contrôles d'installation**, **121 vérifications du parcours métier réel** en HTTP, **0 erreur serveur** |
+| Vérification | **86 tests automatisés**, **74 contrôles d'installation**, **252 vérifications du parcours métier réel** en HTTP (16 étapes), **0 erreur serveur** |
 | Catalogue | 3 familles, catégories et sous-catégories modifiables, variantes, kits, promotions datées, **aucune limite codée au nombre d'articles** |
 | Import | Assistant Excel/CSV : modèle téléchargeable, association des colonnes, aperçu sans écriture, exécution par lots, **rapport ligne par ligne**, modifications en masse |
 | Livraison | Retrait, Daoukro, région de l'Iffou, reste du pays ; frais inconnus ⇒ **« Livraison sur devis »** avec accord du client, jamais « offert » |
@@ -56,7 +56,7 @@ npm ci --no-audit --no-fund && cp .env.example .env
 npm run migrate && npm run reset:demo
 DEMO=true PORT=3000 npm start      # boutique sur http://localhost:3000, administration sur /admin
 npm run check                      # 74 vérifications
-DEMO=true npm run journey -- --url http://127.0.0.1:3000   # 121 vérifications du métier réel
+DEMO=true npm run journey -- --url http://127.0.0.1:3000   # 252 vérifications du métier réel
 ```
 
 Documentation : [ajouter des articles](boutique/docs/guide-articles.md) ·

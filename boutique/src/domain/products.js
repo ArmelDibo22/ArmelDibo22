@@ -755,8 +755,12 @@ function create(input, { userId = null, skipIndex = false } = {}) {
     if (Array.isArray(input.kit_components)) stock.saveKitComponents(productId, input.kit_components);
 
     stock.syncItems(productId, { userId });
-    if (data.status === 'published' && (!data.price || data.price <= 0)) {
-      // Un article sans prix reste non achetable : on le repasse en brouillon.
+    // Même garde-fou qu'en modification et qu'à la publication manuelle : un
+    // article publié doit avoir un prix et des données confirmées. Sans cela il
+    // repasse en brouillon — invisible en vitrine et absent du sitemap — tant
+    // que le propriétaire n'a pas confirmé le prix et la disponibilité.
+    const fresh = rawProduct(productId);
+    if (fresh && fresh.status === 'published' && (!fresh.price || fresh.price <= 0 || !fresh.data_confirmed)) {
       db.run("UPDATE products SET status = 'draft' WHERE id = ?", [productId]);
     }
     if (!skipIndex) indexProduct(productId);
@@ -938,8 +942,12 @@ function remove(id, userId = null) {
 /** Modifications en masse : prix, catégories, stocks, statuts. */
 function bulkUpdate(ids, changes, { userId = null } = {}) {
   const targets = (ids || []).map(Number).filter(Boolean);
-  if (!targets.length) return { count: 0 };
-  const report = { count: 0, skipped: 0, details: [] };
+  const report = { count: 0, skipped: 0, demoted: 0, details: [] };
+  // Rien à faire si aucune cible ou aucun changement demandé : sans ce contrôle,
+  // la fonction annonçait « 1 produit modifié » pour un appel vide (et
+  // réindexait l'article pour rien).
+  const asked = Object.keys(changes || {}).filter((key) => changes[key] !== undefined);
+  if (!targets.length || !asked.length) return report;
 
   db.transaction(() => {
     for (const id of targets) {
@@ -1009,6 +1017,18 @@ function bulkUpdate(ids, changes, { userId = null } = {}) {
         if (changes.data_confirmed !== undefined) {
           db.run('UPDATE products SET data_confirmed = ?, updated_at = ? WHERE id = ?', [changes.data_confirmed ? 1 : 0, dates.nowIso(), id]);
         }
+
+        // Même garde-fou que la fiche produit : un article publié sans prix
+        // confirmé ne doit pas rester en vitrine (ni dans le sitemap). Sans ce
+        // contrôle, une modification en masse pouvait laisser publié un article
+        // ramené à 0 FCFA ou dont la confirmation venait d'être retirée.
+        const fresh = rawProduct(id);
+        if (fresh && fresh.status === 'published' && (!fresh.price || fresh.price <= 0 || !fresh.data_confirmed)) {
+          db.run("UPDATE products SET status = 'draft', updated_at = ? WHERE id = ?", [dates.nowIso(), id]);
+          report.demoted += 1;
+          report.details.push({ id, sku: product.sku, demoted: true });
+        }
+
         indexProduct(id);
         report.count += 1;
       } catch (err) {

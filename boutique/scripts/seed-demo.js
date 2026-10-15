@@ -80,7 +80,9 @@ const COULEURS = {
 
 /**
  * `qty` : stock de l'article simple. `variants[].stock` : stock par variante.
- * `confirmed: false` démontre la règle « sans données confirmées, non achetable ».
+ * `confirmed: false` démontre la règle « sans prix ni disponibilité confirmés,
+ * l'article reste en brouillon » : invisible en vitrine, absent du sitemap et
+ * non commandable tant que le propriétaire n'a pas confirmé la fiche.
  */
 const CATALOGUE = [
   // --- Papeterie et fournitures scolaires ---------------------------------
@@ -104,7 +106,7 @@ const CATALOGUE = [
   { sku: 'DEMO-CAL-12', name: 'Calculatrice scientifique (démonstration)', cat: 'fournitures-scolaires', family: 'papeterie', price: 8500, qty: 14, low: 4, unit: 'piece', weight: 130 },
   { sku: 'DEMO-CRA-12', name: 'Craies blanches — boîte de 12 (démonstration)', cat: 'dessin-travaux-manuels', family: 'papeterie', price: 600, qty: 50, low: 10, unit: 'piece', weight: 150 },
   { sku: 'DEMO-ATT-001', name: 'Article en attente de confirmation (démonstration)', cat: 'fournitures-scolaires', family: 'papeterie', price: 2500, qty: 5, unit: 'piece', confirmed: false,
-    short: 'Prix et disponibilité non confirmés : cet article n’est pas commandable.' },
+    short: 'Prix et disponibilité non confirmés : l’article reste en brouillon, il n’apparaît ni en vitrine ni dans le sitemap.' },
   { sku: 'DEMO-BROU-01', name: 'Article en brouillon (démonstration)', cat: 'fournitures-scolaires', family: 'papeterie', price: 1000, qty: 3, unit: 'piece', status: 'draft',
     short: 'Non publié : invisible sur le site.' },
   { sku: 'DEMO-ARCH-01', name: 'Article archivé (démonstration)', cat: 'fournitures-scolaires', family: 'papeterie', price: 1200, qty: 0, unit: 'piece', status: 'archived' },

@@ -259,3 +259,72 @@ test('suivi de stock : un article simple garde son suivi malgré une liste de co
   assert.strictEqual(row.is_kit, 0);
   assert.strictEqual(row.track_stock, 1, 'un kit vidé redevient un article simple suivable');
 });
+
+test('création : un article publié sans prix ni confirmation repasse en brouillon', () => {
+  // Le formulaire d'administration propose « publier ». Sans prix ou sans
+  // confirmation du prix et de la disponibilité, la publication doit être
+  // refusée : c'est déjà la règle à la modification et au changement de statut
+  // manuel, elle s'applique aussi à la création (et donc aux imports).
+  const unconfirmed = makeProduct(T, { sku: 'CREA-NC', name: 'Article créé non confirmé', data_confirmed: 0 });
+  assert.strictEqual(unconfirmed.data_confirmed, 0, 'la fiche reste marquée non confirmée');
+  assert.strictEqual(unconfirmed.status, 'draft', 'un article non confirmé ne reste pas publié');
+  assert.strictEqual(products.purchasability(unconfirmed).ok, false);
+
+  const noPrice = makeProduct(T, { sku: 'CREA-0', name: 'Article créé sans prix', price: 0 });
+  assert.strictEqual(noPrice.status, 'draft', 'un article sans prix ne reste pas publié');
+
+  const complete = makeProduct(T, { sku: 'CREA-OK', name: 'Article créé complet', price: 1500 });
+  assert.strictEqual(complete.status, 'published', 'un article complet est bien publié');
+  assert.strictEqual(products.purchasability(complete).ok, true);
+});
+
+test('modification en masse : prix, confirmation, stock et garde-fous', () => {
+  const a = makeProduct(T, { sku: 'MASSE-A', name: 'Article en masse A', price: 1000, qty: 10 });
+  const b = makeProduct(T, { sku: 'MASSE-B', name: 'Article en masse B', price: 2000, qty: 10 });
+  const statusOf = (id) => db.get('SELECT status FROM products WHERE id = ?', [id]).status;
+  const priceOf = (id) => db.get('SELECT price FROM products WHERE id = ?', [id]).price;
+
+  // Variation en pourcentage appliquée à toute la sélection.
+  let report = products.bulkUpdate([a.id, b.id], { price_percent: 10 }, { userId: 1 });
+  assert.strictEqual(report.count, 2);
+  assert.strictEqual(priceOf(a.id), 1100);
+  assert.strictEqual(priceOf(b.id), 2200);
+
+  // Un prix ramené à zéro retire l'article de la vitrine : sans ce garde-fou,
+  // l'article restait publié, affiché et proposé au sitemap sans prix connu.
+  report = products.bulkUpdate([a.id, b.id], { price_set: 0 }, { userId: 1 });
+  assert.strictEqual(report.demoted, 2, 'les deux articles sans prix sont rétrogradés');
+  assert.strictEqual(statusOf(a.id), 'draft');
+  assert.strictEqual(statusOf(b.id), 'draft');
+
+  // Rendre un prix ne suffit pas : la publication reste un acte explicite.
+  products.bulkUpdate([a.id], { price_set: 1500 }, { userId: 1 });
+  assert.strictEqual(statusOf(a.id), 'draft', 'la republication n’est pas automatique');
+  assert.strictEqual(products.purchasability(products.getById(a.id)).ok, false);
+
+  // Retirer la confirmation d'un article publié le dépublie aussi.
+  products.bulkUpdate([b.id], { price_set: 2000 }, { userId: 1 });
+  products.setStatus(b.id, 'published', 1);
+  assert.strictEqual(statusOf(b.id), 'published');
+  report = products.bulkUpdate([b.id], { data_confirmed: false }, { userId: 1 });
+  assert.strictEqual(report.demoted, 1);
+  assert.strictEqual(statusOf(b.id), 'draft', 'une donnée dé-confirmée ne reste pas en ligne');
+
+  // Le stock ne peut jamais devenir négatif, même en masse.
+  const before = stock.itemFor(a.id, null).qty_on_hand;
+  products.bulkUpdate([a.id], { stock_delta: 5 }, { userId: 1 });
+  assert.strictEqual(stock.itemFor(a.id, null).qty_on_hand, before + 5);
+  assert.ok(
+    db.all("SELECT * FROM stock_movements WHERE product_id = ? AND reason = 'ajustement'", [a.id]).length >= 1,
+    'l’ajustement est journalisé'
+  );
+  products.bulkUpdate([a.id], { stock_delta: -999999 }, { userId: 1 });
+  assert.strictEqual(stock.itemFor(a.id, null).qty_on_hand, before + 5, 'un stock négatif est refusé');
+  products.bulkUpdate([a.id], { stock_delta: -5 }, { userId: 1 });
+  assert.strictEqual(stock.itemFor(a.id, null).qty_on_hand, before);
+
+  // Une sélection vide ou une action inconnue ne modifie rien.
+  assert.strictEqual(products.bulkUpdate([], { price_set: 1 }, { userId: 1 }).count, 0);
+  assert.strictEqual(products.bulkUpdate([a.id], {}, { userId: 1 }).count, 0);
+  assert.strictEqual(priceOf(a.id), 1500);
+});

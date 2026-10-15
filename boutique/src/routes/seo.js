@@ -34,7 +34,12 @@ router.get('/sitemap.xml', (req, res) => {
   for (const c of db.all('SELECT slug, updated_at FROM categories WHERE archived = 0 ORDER BY position')) {
     urls.push({ loc: `${base}/categorie/${c.slug}`, lastmod: c.updated_at, priority: '0.8', changefreq: 'weekly' });
   }
-  for (const p of db.all("SELECT slug, updated_at FROM products WHERE status = 'published' ORDER BY updated_at DESC LIMIT 20000")) {
+  // Seuls les articles publiés ET confirmés sont proposés aux moteurs de recherche :
+  // une fiche dont le prix ou la disponibilité n'est pas confirmé ne doit pas être
+  // indexée (double garde-fou avec la rétrogradation en brouillon côté catalogue).
+  for (const p of db.all(
+    "SELECT slug, updated_at FROM products WHERE status = 'published' AND data_confirmed = 1 AND price > 0 ORDER BY updated_at DESC LIMIT 20000"
+  )) {
     urls.push({ loc: `${base}/produit/${p.slug}`, lastmod: p.updated_at, priority: '0.7', changefreq: 'weekly' });
   }
   for (const pg of db.all('SELECT slug, updated_at FROM pages WHERE published = 1')) {

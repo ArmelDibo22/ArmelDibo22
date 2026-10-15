@@ -251,7 +251,7 @@ router.get('/produits/nouveau', auth.requirePermission('catalog.write'), (req, r
   renderProductForm(req, res, { product: null, title: 'Nouveau produit' });
 });
 
-router.post('/produits/nouveau', auth.requirePermission('catalog.write'), upload.imageUpload, (req, res, next) => {
+router.post('/produits/nouveau', auth.requirePermission('catalog.write'), upload.imageUpload, async (req, res, next) => {
   try {
     const payload = buildProductPayload(req.body);
     payload.variants = parseVariantForm(req.body);
@@ -268,9 +268,14 @@ router.post('/produits/nouveau', auth.requirePermission('catalog.write'), upload
       if (item) stock.setOnHand(item.id, Number(payload.qty), { reason: 'initial', note: 'Stock initial', userId: req.admin.user.id, reference: created.sku });
     }
 
-    if (req.files && req.files.length) attachUploadedImages(created.id, req.files, req.admin.user.id);
-
+    // Les photos sont traitées AVANT la redirection : sans cet ordre, la fiche
+    // s'affichait sans l'image qui venait d'être envoyée (elle n'apparaissait
+    // qu'au rechargement suivant).
     flash(req, 'success', `Produit « ${created.name} » créé. Pensez à ajouter une photo et à confirmer le prix avant publication.`);
+    if (req.files && req.files.length) {
+      const uploaded = await attachUploadedImages(created.id, req.files, req.admin.user.id);
+      if (uploaded.rejected.length) flashUploadResult(req, uploaded, 'enregistrée(s)');
+    }
     return res.redirect(`/admin/produits/${created.id}`);
   } catch (err) {
     if (err.name === 'ValidationError' || err.code === 'DUPLICATE_SKU' || err.status === 400) {
@@ -310,10 +315,13 @@ router.post('/produits/masse', auth.requirePermission('catalog.write'), (req, re
   }
 
   const report = products.bulkUpdate(ids, changes, { userId: req.admin.user.id });
+  const notes = [];
+  if (report.skipped) notes.push(`${report.skipped} ignoré(s)`);
+  if (report.demoted) notes.push(`${report.demoted} repassé(s) en brouillon (prix ou confirmation manquants)`);
   flash(
     req,
-    report.skipped ? 'warn' : 'success',
-    `${report.count} produit(s) modifié(s)${report.skipped ? `, ${report.skipped} ignoré(s)` : ''}.`
+    notes.length ? 'warn' : 'success',
+    `${report.count} produit(s) modifié(s)${notes.length ? `, ${notes.join(', ')}` : ''}.`
   );
   return res.redirect('/admin/produits');
 });
@@ -324,7 +332,7 @@ router.get('/produits/:id', auth.requirePermission('catalog.read'), (req, res, n
   renderProductForm(req, res, { product, title: `Modifier — ${product.name}` });
 });
 
-router.post('/produits/:id', auth.requirePermission('catalog.write'), upload.imageUpload, (req, res, next) => {
+router.post('/produits/:id', auth.requirePermission('catalog.write'), upload.imageUpload, async (req, res, next) => {
   const id = Number(req.params.id);
   const product = products.rawProduct(id);
   if (!product) return next(notFound('Produit introuvable.'));
@@ -348,9 +356,12 @@ router.post('/produits/:id', auth.requirePermission('catalog.write'), upload.ima
         });
       }
     }
-    if (req.files && req.files.length) attachUploadedImages(id, req.files, req.admin.user.id);
-
     flash(req, 'success', 'Produit enregistré.');
+    if (req.files && req.files.length) {
+      const uploaded = await attachUploadedImages(id, req.files, req.admin.user.id);
+      // Un fichier écarté doit être signalé même quand la fiche est enregistrée.
+      if (uploaded.rejected.length) flashUploadResult(req, uploaded, 'enregistrée(s)');
+    }
     return res.redirect(`/admin/produits/${id}`);
   } catch (err) {
     if (err.name === 'ValidationError' || err.code === 'DUPLICATE_SKU' || err.status === 400) {
@@ -365,7 +376,17 @@ router.post('/produits/:id', auth.requirePermission('catalog.write'), upload.ima
   }
 });
 
+/**
+ * Enregistre les photos téléversées sur un produit.
+ *
+ * Un fichier illisible est écarté sans interrompre les autres, mais il doit
+ * être SIGNALÉ : annoncer « image ajoutée » pour un fichier refusé ferait
+ * croire au propriétaire que la photo est en ligne alors qu'elle ne l'est pas.
+ * @returns {{attached:number, rejected:{name:string, reason:string}[]}}
+ */
 async function attachUploadedImages(productId, files, userId) {
+  const rejected = [];
+  let attached = 0;
   for (const file of files) {
     try {
       const stored = await images.storeImage(file.buffer, { mime: file.mimetype, filename: file.originalname });
@@ -380,9 +401,24 @@ async function attachUploadedImages(productId, files, userId) {
         created_by: userId,
       });
       products.attachImage(productId, mediaId, { userId });
+      attached += 1;
     } catch (err) {
       require('../../lib/logger').warn('image ignorée', { productId, error: err.message });
+      rejected.push({ name: String(file.originalname || 'image'), reason: err.message });
     }
+  }
+  return { attached, rejected };
+}
+
+/** Message flash fidèle au résultat réel d'un téléversement de photos. */
+function flashUploadResult(req, { attached, rejected }, suffix = 'ajoutée(s) et optimisée(s)') {
+  const details = rejected.map((r) => `${r.name} — ${r.reason}`).join(' · ');
+  if (!attached) {
+    flash(req, 'error', `Aucune image enregistrée. ${details}`.trim());
+  } else if (rejected.length) {
+    flash(req, 'warn', `${attached} image(s) ${suffix}, ${rejected.length} fichier(s) écarté(s). ${details}`);
+  } else {
+    flash(req, 'success', `${attached} image(s) ${suffix}.`);
   }
 }
 
@@ -420,8 +456,8 @@ router.post('/produits/:id/images', auth.requirePermission('catalog.write'), upl
       flash(req, 'error', 'Aucune image reçue.');
       return res.redirect(`/admin/produits/${id}#images`);
     }
-    await attachUploadedImages(id, req.files, req.admin.user.id);
-    flash(req, 'success', `${req.files.length} image(s) ajoutée(s) et optimisée(s).`);
+    const result = await attachUploadedImages(id, req.files, req.admin.user.id);
+    flashUploadResult(req, result);
     return res.redirect(`/admin/produits/${id}#images`);
   } catch (err) { return next(err); }
 });

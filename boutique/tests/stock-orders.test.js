@@ -378,3 +378,82 @@ test('dernier exemplaire : la réservation du panier ne se retourne pas contre l
   assert.strictEqual(T.cart.loadCart(cartId, 'panier-test').items[0].purchasable, false,
     'l’exemplaire est vendu : le panier converti ne le propose plus');
 });
+
+test('remboursement : partiel puis intégral, remise en stock et journal d’audit', () => {
+  const admin = adminRow();
+  const p = makeProduct(T, { sku: 'REMB-1', name: 'Article remboursé', price: 1500, qty: 10 });
+  const order = makeOrder(T, [{ productId: p.id, qty: 2 }]);
+  payments.confirmCashCollection(order.id, { user: admin, amount: 3000, note: 'Espèces reçues' });
+  assert.strictEqual(db.get('SELECT payment_status FROM orders WHERE id = ?', [order.id]).payment_status, 'paid');
+
+  const line = db.get('SELECT * FROM order_items WHERE order_id = ?', [order.id]);
+  const onHandBefore = itemOf(p.id).qty_on_hand;
+
+  // Un retour enregistré mais non validé ne doit rien changer.
+  const pending = orders.createRefund(order.id, {
+    kind: 'return', items: [{ orderItemId: line.id, qty: 1 }], restock: true, userId: admin.id,
+  });
+  assert.strictEqual(pending.status, 'pending');
+  assert.strictEqual(pending.amount, 1500, 'le montant vient de la ligne, pas de la saisie');
+  assert.strictEqual(db.get('SELECT amount_refunded FROM orders WHERE id = ?', [order.id]).amount_refunded, 0);
+  assert.strictEqual(itemOf(p.id).qty_on_hand, onHandBefore, 'aucune remise en stock avant validation');
+  assert.strictEqual(db.all('SELECT * FROM refund_items WHERE refund_id = ?', [pending.id]).length, 1);
+
+  orders.applyRefund(pending.id, { userId: admin.id });
+  let fresh = db.get('SELECT * FROM orders WHERE id = ?', [order.id]);
+  assert.strictEqual(fresh.amount_refunded, 1500);
+  assert.strictEqual(fresh.payment_status, 'partially_refunded', 'le statut de paiement suit');
+  assert.strictEqual(fresh.status, 'partially_refunded', 'le statut de commande suit');
+  assert.strictEqual(itemOf(p.id).qty_on_hand, onHandBefore + 1, 'l’unité retournée revient en stock');
+  assert.ok(
+    db.all("SELECT * FROM stock_movements WHERE product_id = ? AND reason = 'retour'", [p.id]).length >= 1,
+    'la remise en stock est journalisée'
+  );
+
+  // Enregistrer ET appliquer en une seule fois doit produire exactement les
+  // mêmes effets : la ligne était auparavant créée directement à « done », ce
+  // qui court-circuitait l'application (ni montant, ni statut, ni stock).
+  const oneShot = orders.createRefund(order.id, {
+    kind: 'refund', items: [{ orderItemId: line.id, qty: 1 }], restock: true, userId: admin.id, status: 'done',
+  });
+  assert.strictEqual(oneShot.status, 'done');
+  assert.ok(oneShot.processed_at, 'la date d’application est posée');
+  assert.strictEqual(oneShot.processed_by, admin.id, 'l’auteur est tracé');
+  fresh = db.get('SELECT * FROM orders WHERE id = ?', [order.id]);
+  assert.strictEqual(fresh.amount_refunded, 3000, 'le remboursement en une fois est réellement appliqué');
+  assert.strictEqual(fresh.payment_status, 'refunded');
+  assert.strictEqual(fresh.status, 'refunded');
+  assert.strictEqual(itemOf(p.id).qty_on_hand, onHandBefore + 2, 'les deux unités sont revenues en stock');
+
+  // Impossible de rembourser plus que ce qui a été encaissé.
+  assert.throws(
+    () => orders.createRefund(order.id, { kind: 'refund', amount: 500, userId: admin.id }),
+    (err) => err.code === 'AMOUNT_EXCEEDED'
+  );
+  // Un remboursement déjà appliqué ne peut pas être rejoué.
+  orders.applyRefund(oneShot.id, { userId: admin.id });
+  assert.strictEqual(db.get('SELECT amount_refunded FROM orders WHERE id = ?', [order.id]).amount_refunded, 3000);
+  assert.strictEqual(db.all('SELECT * FROM refunds WHERE order_id = ?', [order.id]).length, 2);
+
+  // Les mouvements d'argent doivent apparaître dans le journal d'audit.
+  const entries = db.all("SELECT * FROM audit_log WHERE entity_type = 'order' AND entity_id = ? AND action LIKE 'refund.%'", [String(order.id)]);
+  assert.strictEqual(entries.length, 4, '2 créations + 2 applications');
+  assert.ok(entries.some((e) => e.action === 'refund.create'));
+  assert.ok(entries.every((e) => e.user_id === admin.id), 'chaque mouvement d’argent a un auteur');
+});
+
+test('annulation d’une commande payée : trace d’audit et remboursement à traiter', () => {
+  const admin = adminRow();
+  const p = makeProduct(T, { sku: 'ANNUL-PAIEE', name: 'Article annulé après paiement', price: 2000, qty: 6 });
+  const order = makeOrder(T, [{ productId: p.id, qty: 1 }]);
+  payments.confirmCashCollection(order.id, { user: admin, amount: 2000, note: 'Espèces reçues' });
+  const onHandAfterPayment = itemOf(p.id).qty_on_hand;
+
+  const cancelled = orders.cancel(order.id, { reason: 'Client injoignable', userId: admin.id, restock: true });
+  assert.strictEqual(cancelled.status, 'cancelled');
+  assert.strictEqual(itemOf(p.id).qty_on_hand, onHandAfterPayment + 1, 'le stock est restitué');
+  const entries = db.all("SELECT * FROM audit_log WHERE action = 'order.cancel' AND entity_id = ?", [String(order.id)]);
+  assert.strictEqual(entries.length, 1, 'l’annulation est journalisée');
+  assert.strictEqual(entries[0].user_id, admin.id);
+  assert.strictEqual(JSON.parse(entries[0].detail).paid, true, 'le journal distingue une annulation après paiement');
+});

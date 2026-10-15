@@ -48,13 +48,13 @@ VOIR LA BOUTIQUE REMPLIE (données fictives, base séparée)
 VÉRIFIER L'INSTALLATION
 --------------------------------------------------------------------------------
 
-  npm test                             # 82 tests automatisés, bases isolées
+  npm test                             # 86 tests automatisés, bases isolées
   npm run check                        # 74 vérifications (pages, accès, intégrité)
   DEMO=true npm run journey -- --url http://127.0.0.1:3000
-                                       # 121 vérifications du parcours métier réel
+                                       # 252 vérifications du parcours métier réel, en 16 étapes
                                        # (écrit des données : démonstration requise)
 
-  Résultats obtenus le 15 octobre 2026 : 82/82, 74/74, 121/121, 0 erreur serveur.
+  Résultats obtenus le 15 octobre 2026 : 86/86, 74/74, 252/252, 0 erreur serveur.
 
 --------------------------------------------------------------------------------
 DOCUMENTATION (boutique/docs/)
